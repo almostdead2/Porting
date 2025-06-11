@@ -1,0 +1,431 @@
+name: Android ROM Porting Workflow
+
+on:
+  workflow_dispatch:
+    inputs:
+      firmware_url:
+        description: 'Direct URL to the OnePlus Firmware ZIP file'
+        required: true
+        default: 'https://otafsg1.h2os.com/patch/amazone2/GLO/OnePlus7TProOxygen/OnePlus7TProOxygen_13.Y.24_GLO_0240_2103170222/OnePlus7TProOxygen_13.Y.24_OTA_0240_all_2103170222_4258b86fff2.zip'
+      custom_init_url:
+        description: 'Direct URL to your custom init binary (e.g., from a GDrive or GitHub Raw link)'
+        required: false
+        default: 'https://example.com/your_custom_init_binary'
+
+jobs:
+  port_rom:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install Dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y unace unrar zip unzip p7zip-full bsdtar liblz4-tool simg2img brotli android-tools-fsutils default-jre mke2fs
+          pip install protobuf tqdm
+
+          wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O apktool
+          wget https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar -O apktool.jar
+          chmod +x apktool apktool.jar
+          sudo mv apktool /usr/local/bin/
+          sudo mv apktool.jar /usr/local/bin/
+
+          echo "Apktool installed successfully."
+
+      - name: Download OnePlus Firmware
+        id: download_firmware
+        run: |
+          FIRMWARE_URL="${{ github.event.inputs.firmware_url }}"
+          FIRMWARE_FILENAME=$(basename "$FIRMWARE_URL")
+          echo "Downloading firmware from: $FIRMWARE_URL"
+          wget -q --show-progress "$FIRMWARE_URL" -O "$FIRMWARE_FILENAME"
+          if [ ! -f "$FIRMWARE_FILENAME" ]; then
+            echo "Error: Firmware download failed."
+            exit 1
+          fi
+          echo "Downloaded firmware: $FIRMWARE_FILENAME"
+          echo "firmware_filename=$FIRMWARE_FILENAME" >> "$GITHUB_OUTPUT"
+
+      - name: Extract Firmware
+        id: extract_firmware
+        run: |
+          FIRMWARE_FILENAME="${{ steps.download_firmware.outputs.firmware_filename }}"
+          mkdir -p firmware_extracted
+          echo "Extracting $FIRMWARE_FILENAME..."
+          if [[ "$FIRMWARE_FILENAME" == *.zip ]]; then
+            unzip -q "$FIRMWARE_FILENAME" -d firmware_extracted/
+          elif [[ "$FIRMWARE_FILENAME" == *.rar ]]; then
+            unrar x "$FIRMWARE_FILENAME" firmware_extracted/
+          elif [[ "$FIRMWARE_FILENAME" == *.7z ]]; then
+            7z x "$FIRMWARE_FILENAME" -o firmware_extracted/
+          else
+            echo "Error: Unsupported firmware archive format."
+            exit 1
+          fi
+
+          if [ ! -d "firmware_extracted" ] || [ -z "$(ls -A firmware_extracted)" ]; then
+              echo "Error: Firmware extraction failed or directory is empty."
+              exit 1
+          fi
+          echo "Firmware extracted to firmware_extracted/"
+
+      - name: Extract Images from payload.bin (if present)
+        run: |
+          if [ -f firmware_extracted/payload.bin ]; then
+            echo "payload.bin found. Extracting images using payload_dumper.py..."
+            wget -q https://raw.githubusercontent.com/AnupamMy/payload_dumper/master/payload_dumper.py -O payload_dumper.py
+            if [ ! -f payload_dumper.py ]; then
+              echo "Error: payload_dumper.py download failed."
+              exit 1
+            fi
+            python3 payload_dumper.py firmware_extracted/payload.bin --output firmware_extracted/extracted_payload
+            if [ $? -ne 0 ]; then
+                echo "Error: payload_dumper.py failed to extract images."
+                exit 1
+            fi
+            echo "Images extracted from payload.bin to firmware_extracted/extracted_payload"
+            mv firmware_extracted/extracted_payload/* firmware_extracted/
+          else
+            echo "payload.bin not found. Proceeding with direct image files."
+          fi
+
+      - name: Consolidate and Select Required Images
+        run: |
+          REQUIRED_IMAGES=("system.img" "product.img" "system_ext.img" "odm.img" "vendor.img" "boot.img")
+          OPTIONAL_IMAGES=("opproduct.img")
+          ALL_IMAGES_FOUND=true
+          TARGET_DIR="firmware_images"
+          mkdir -p "$TARGET_DIR"
+
+          for img in "${REQUIRED_IMAGES[@]}"; do
+            if [ -f "firmware_extracted/$img" ]; then
+              echo "Found $img"
+              mv "firmware_extracted/$img" "$TARGET_DIR/"
+            else
+              echo "Warning: Required image $img not found."
+              ALL_IMAGES_FOUND=false
+            fi
+          done
+
+          for img in "${OPTIONAL_IMAGES[@]}"; do
+            if [ -f "firmware_extracted/$img" ]; then
+              echo "Found optional image $img"
+              mv "firmware_extracted/$img" "$TARGET_DIR/"
+            else
+              echo "Optional image $img not found."
+            fi
+          done
+
+          rm -rf firmware_extracted/*
+          echo "Only required and optional images moved to $TARGET_DIR/. Others deleted."
+
+          if ! $ALL_IMAGES_FOUND; then
+            echo "Error: One or more required images were not found. Exiting."
+            exit 1
+          fi
+
+      - name: Extract System, System_ext, Product, ODM, Opproduct Images
+        run: |
+          mkdir -p system system_ext product odm opproduct
+
+          echo "Extracting system.img to system/"
+          simg2img firmware_images/system.img system_raw.img
+          if [ $? -ne 0 ]; then echo "simg2img system.img failed"; exit 1; fi
+          7z x system_raw.img -osystem/
+          if [ $? -ne 0 ]; then echo "7z extract system_raw.img failed"; exit 1; fi
+          rm system_raw.img
+
+          echo "Extracting system_ext.img to system_ext/"
+          simg2img firmware_images/system_ext.img system_ext_raw.img
+          if [ $? -ne 0 ]; then echo "simg2img system_ext.img failed"; exit 1; fi
+          7z x system_ext_raw.img -osystem_ext/
+          if [ $? -ne 0 ]; then echo "7z extract system_ext_raw.img failed"; exit 1; fi
+          rm system_ext_raw.img
+
+          echo "Extracting product.img to product/"
+          simg2img firmware_images/product.img product_raw.img
+          if [ $? -ne 0 ]; then echo "simg2img product.img failed"; exit 1; fi
+          7z x product_raw.img -oproduct/
+          if [ $? -ne 0 ]; then echo "7z extract product_raw.img failed"; exit 1; fi
+          rm product_raw.img
+
+          echo "Extracting odm.img to odm/"
+          simg2img firmware_images/odm.img odm_raw.img
+          if [ $? -ne 0 ]; then echo "simg2img odm.img failed"; exit 1; fi
+          7z x odm_raw.img -oodm/
+          if [ $? -ne 0 ]; then echo "7z extract odm_raw.img failed"; exit 1; fi
+          rm odm_raw.img
+
+          if [ -f "firmware_images/opproduct.img" ]; then
+            echo "Extracting opproduct.img to opproduct/"
+            simg2img firmware_images/opproduct.img opproduct_raw.img
+            if [ $? -ne 0 ]; then echo "simg2img opproduct.img failed"; exit 1; fi
+            7z x opproduct_raw.img -oopproduct/
+            if [ $? -ne 0 ]; then echo "7z extract opproduct_raw.img failed"; exit 1; fi
+            rm opproduct_raw.img
+          else
+            echo "opproduct.img not found, skipping extraction."
+          fi
+
+          echo "Images extracted to their respective folders."
+
+      - name: Merge System Partitions
+        run: |
+          echo "Copying system_ext/ contents to system/system_ext..."
+          mkdir -p system/system_ext
+          cp -r system_ext/* system/system_ext/
+          if [ $? -ne 0 ]; then echo "Copy system_ext failed"; exit 1; fi
+
+          echo "Copying product/ contents to system/product..."
+          mkdir -p system/product
+          cp -r product/* system/product/
+          if [ $? -ne 0 ]; then echo "Copy product failed"; exit 1; fi
+
+          echo "Copying odm/ contents to system/odm..."
+          mkdir -p system/odm
+          cp -r odm/* system/odm/
+          if [ $? -ne 0 ]; then echo "Copy odm failed"; exit 1; fi
+
+          if [ -d "opproduct" ]; then
+            echo "Copying opproduct/ contents to system/opproduct..."
+            mkdir -p system/opproduct
+            cp -r opproduct/* system/opproduct/
+            if [ $? -ne 0 ]; then echo "Copy opproduct failed"; exit 1; fi
+          fi
+
+          echo "All partition contents merged into system/."
+
+      - name: Replace init Binary
+        if: github.event.inputs.custom_init_url != 'https://example.com/your_custom_init_binary'
+        run: |
+          INIT_TARGET_PATH="system/bin/init"
+          CUSTOM_INIT_URL="${{ github.event.inputs.custom_init_url }}"
+
+          echo "Downloading custom init binary from: $CUSTOM_INIT_URL"
+          wget -q --show-progress "$CUSTOM_INIT_URL" -O custom_init
+          if [ ! -f "custom_init" ]; then
+            echo "Error: Custom init download failed."
+            exit 1
+          fi
+
+          if [ -f "$INIT_TARGET_PATH" ]; then
+            echo "Deleting old init: $INIT_TARGET_PATH"
+            rm "$INIT_TARGET_PATH"
+          else
+            echo "Old init not found at $INIT_TARGET_PATH, will place new one."
+          fi
+
+          echo "Copying new init to $INIT_TARGET_PATH and setting permissions."
+          cp custom_init "$INIT_TARGET_PATH"
+          sudo chown 1000:1000 "$INIT_TARGET_PATH"
+          sudo chmod 0755 "$INIT_TARGET_PATH"
+          echo "Init binary replaced and permissions set."
+
+      - name: Modify build.prop
+        run: |
+          ODT_BUILD_PROP="odm/etc/buildinfo/build.prop"
+          SYSTEM_BUILD_PROP="system/build.prop"
+
+          if [ ! -f "$ODT_BUILD_PROP" ]; then
+            echo "Warning: $ODT_BUILD_PROP not found. Skipping build.prop modification."
+            exit 0
+          fi
+          if [ ! -f "$SYSTEM_BUILD_PROP" ]; then
+            echo "Error: $SYSTEM_BUILD_PROP not found. Cannot modify build.prop."
+            exit 1
+          fi
+
+          echo "Extracting lines from $ODT_BUILD_PROP..."
+          BUILD_PROP_LINES=$(awk '/# autogenerated by oem_log_prop.sh/{flag=1} flag' "$ODT_BUILD_PROP")
+
+          if [ -z "$BUILD_PROP_LINES" ]; then
+            echo "Warning: No lines found to copy from $ODT_BUILD_PROP starting from '# autogenerated by oem_log_prop.sh'. Skipping build.prop modification."
+            exit 0
+          fi
+
+          echo "Appending lines to $SYSTEM_BUILD_PROP..."
+          sed -i "/# end build properties/a\\\n${BUILD_PROP_LINES}\n" "$SYSTEM_BUILD_PROP"
+          echo "build.prop modified successfully."
+
+      - name: Create empty keylayout files
+        run: |
+          KEYLAYOUT_DIR="system/usr/keylayout"
+          mkdir -p "$KEYLAYOUT_DIR"
+
+          echo "Creating empty uinput-fpc.kl and uinput-goodix.kl..."
+          touch "$KEYLAYOUT_DIR/uinput-fpc.kl"
+          touch "$KEYLAYOUT_DIR/uinput-goodix.kl"
+          echo "Keylayout files created."
+
+      - name: Remove Unwanted Apps
+        run: |
+          echo "Attempting to remove unwanted apps from various partitions..."
+
+          APPS_TO_REMOVE=(
+            "OnePlusCamera"
+          )
+
+          declare -a APP_PATHS=(
+            "system/app"
+            "system/priv-app"
+            "system/product/app"
+            "system/product/priv-app"
+            "system/system_ext/app"
+            "system/system_ext/priv-app"
+          )
+
+          for app_name in "${APPS_TO_REMOVE[@]}"; do
+            APP_FOUND=false
+            for app_path_base in "${APP_PATHS[@]}"; do
+              TARGET_DIR="$app_path_base/$app_name"
+              if [ -d "$TARGET_DIR" ]; then
+                echo "Removing $TARGET_DIR..."
+                rm -rf "$TARGET_DIR"
+                APP_FOUND=true
+                break
+              fi
+            done
+            if ! $APP_FOUND; then
+              echo "Warning: App folder '$app_name' not found in common directories. Skipping."
+            fi
+          done
+
+          echo "Unwanted apps removal attempt complete."
+
+      - name: Patch services.jar (Smali Modification)
+        run: |
+          SERVICES_JAR_PATH="system/framework/services.jar"
+          SMALI_FILE="system/framework/services/smali_classes2/com/android/server/wm/ActivityTaskManagerService\$LocalService.smali"
+
+          if [ ! -f "$SERVICES_JAR_PATH" ]; then
+            echo "Error: services.jar not found at $SERVICES_JAR_PATH."
+            exit 1
+          fi
+
+          echo "Decompiling services.jar..."
+          apktool d -r "$SERVICES_JAR_PATH" -o system/framework/services
+          if [ $? -ne 0 ]; then echo "Apktool decompilation failed."; exit 1; fi
+
+          if [ ! -f "$SMALI_FILE" ]; then
+            echo "Error: Smali file not found at $SMALI_FILE. Decompilation might have failed or path is incorrect."
+            exit 1
+          fi
+
+          echo "Applying smali modifications to $SMALI_FILE..."
+
+          sed -i '/invoke-static {}, Landroid\/os\/Build;->isBuildConsistent()Z/{
+            n
+            s/    move-result v1/    move-result v1\n\n    const\/4 v1, 0x1\n/
+          }' "$SMALI_FILE"
+          if [ $? -ne 0 ]; then echo "First sed replacement failed."; exit 1; fi
+          echo "First modification (const/4 v1, 0x1) applied."
+
+          sed -i 's/if-nez v1, :cond_42/if-nez v1, :cond_43/g' "$SMALI_FILE"
+          if [ $? -ne 0 ]; then echo "Second sed replacement failed."; exit 1; fi
+          echo "Second modification (cond_42 to cond_43) applied."
+
+          sed -i 's/:cond_42/:cond_43/g' "$SMALI_FILE"
+          if [ $? -ne 0 ]; then echo "Third sed replacement failed."; exit 1; fi
+          echo "Third modification (:cond_42 to :cond_43 label) applied."
+
+          sed -i 's/\(:try_end_43\)\n    .catchall {:try_start_29 .. :try_end_43} :catchall_26/\:try_end_44\n    .catchall {:try_start_29 .. :try_end_44} :catchall_26/g' "$SMALI_FILE"
+          if [ $? -ne 0 ]; then echo "Fourth sed replacement (try_end_43) failed."; exit 1; fi
+          echo "Fourth modification (:try_end_43 to :try_end_44) applied."
+
+          sed -i 's/:goto_47/:goto_48/g' "$SMALI_FILE"
+          if [ $? -ne 0 ]; then echo "Fifth sed replacement (goto_47) failed."; exit 1; fi
+          echo "Fifth modification (:goto_47 to :goto_48) applied."
+
+          sed -i 's/\(:try_start_47\)\n    monitor-exit v0\n    :try_end_48/\:try_start_48\n    monitor-exit v0\n    :try_end_49/g' "$SMALI_FILE"
+          if [ $? -ne 0 ]; then echo "Sixth sed replacement (try_start/end_4x) failed."; exit 1; fi
+          echo "Sixth modification (:try_start/end_4x) applied."
+
+          echo "Recompiling services.jar..."
+          apktool b system/framework/services -o "$SERVICES_JAR_PATH"
+          if [ $? -ne 0 ]; then echo "Apktool recompilation failed."; exit 1; fi
+          echo "services.jar recompiled successfully."
+
+      - name: Convert system folder to system.img with specific size
+        run: |
+          TARGET_SYSTEM_IMG_SIZE_BYTES=3221225472
+          SYSTEM_FOLDER_SIZE=$(du -bs system | awk '{print $1}')
+          echo "Current system folder size: $SYSTEM_FOLDER_SIZE bytes"
+
+          echo "Creating system.img from system/ folder with a max partition size of 3.22GB..."
+          make_ext4fs -s -S -L system -a /system -l "$TARGET_SYSTEM_IMG_SIZE_BYTES" system_new.img system/
+          if [ $? -ne 0 ]; then echo "make_ext4fs failed to create system_new.img"; exit 1; fi
+          mv system_new.img firmware_images/system.img
+
+          echo "system.img created. Size:"
+          ls -lh firmware_images/system.img
+          ls -l firmware_images/system.img | awk '{print $5 " bytes"}'
+
+      - name: Convert system.img to system.new.dat.br, system.transfer.list
+        run: |
+          echo "Cloning rimg2sdat tools..."
+          git clone https://github.com/AnupamMy/sdat2img.git --depth=1 rimg2sdat_tools
+          if [ ! -d "rimg2sdat_tools" ]; then echo "Failed to clone sdat2img tools."; exit 1; fi
+
+          echo "Converting system.img to system.new.dat and system.transfer.list..."
+          python3 rimg2sdat_tools/rimg2sdat.py firmware_images/system.img system.new.dat system.transfer.list
+          if [ $? -ne 0 ]; then echo "rimg2sdat.py failed."; exit 1; fi
+
+          echo "Compressing system.new.dat to system.new.dat.br..."
+          brotli -q 11 system.new.dat -o system.new.dat.br
+          if [ $? -ne 0 ]; then echo "Brotli compression failed."; exit 1; fi
+          rm system.new.dat
+
+          echo "Generated system.new.dat.br and system.transfer.list."
+
+      - name: Zip Final Files for Release
+        run: |
+          BUILD_DATE=$(date +%Y%m%d)
+          ROM_NAME="OnePlus-Port-ROM-$BUILD_DATE.zip"
+          echo "Zipping final files into $ROM_NAME..."
+          zip -r "$ROM_NAME" system.new.dat.br system.transfer.list firmware_images/boot.img
+          if [ $? -ne 0 ]; then echo "Zipping failed."; exit 1; fi
+          echo "ROM_NAME=$ROM_NAME" >> "$GITHUB_ENV"
+          echo "$ROM_NAME created."
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: ${{ env.ROM_NAME }}
+          name: Release ${{ env.ROM_NAME }}
+          tag_name: ${{ github.ref_name }}
+          body: |
+            OnePlus OEM ROM Port - ${{ env.ROM_NAME }}
+
+            This release contains the ported ROM for your device.
+
+            Changes included:
+            - Custom build.prop modifications
+            - `services.jar` patched for build consistency check bypass
+            - Unwanted apps removed
+            - Custom `init` binary (if provided)
+            - System partition merged and re-imaged
+            - Empty keylayout files created
+
+            Flash at your own risk.
+
+      - name: Upload Artifact (for all runs, regardless of release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ported-rom-zip
+          path: ${{ env.ROM_NAME }}
+          retention-days: 7
+
+      - name: Clean Up
+        run: |
+          echo "Cleaning up workspace..."
+          rm -rf system system_ext product odm opproduct firmware_extracted firmware_images rimg2sdat_tools payload_dumper.py *.zip *.rar *.7z *.img *.dat *.br custom_init
+          echo "Cleanup complete."
