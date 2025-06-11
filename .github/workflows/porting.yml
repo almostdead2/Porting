@@ -24,7 +24,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: '3.x'
 
       - name: Install Dependencies
         run: |
@@ -85,18 +85,28 @@ jobs:
         run: |
           if [ -f firmware_extracted/payload.bin ]; then
             echo "payload.bin found. Extracting images using payload_dumper.py..."
+
             wget -q https://raw.githubusercontent.com/AnupamMy/payload_dumper/master/payload_dumper.py -O payload_dumper.py
+            wget -q https://raw.githubusercontent.com/AnupamMy/payload_dumper/master/update_metadata_pb2.py -O update_metadata_pb2.py
+
             if [ ! -f payload_dumper.py ]; then
               echo "Error: payload_dumper.py download failed."
               exit 1
             fi
+            if [ ! -f update_metadata_pb2.py ]; then
+              echo "Error: update_metadata_pb2.py download failed. This file is often required by payload_dumper.py."
+              exit 1
+            fi
+
             python3 payload_dumper.py firmware_extracted/payload.bin --output firmware_extracted/extracted_payload
+            
             if [ $? -ne 0 ]; then
-                echo "Error: payload_dumper.py failed to extract images."
+                echo "Error: payload_dumper.py failed to extract images. Review the output above for the Python traceback."
                 exit 1
             fi
             echo "Images extracted from payload.bin to firmware_extracted/extracted_payload"
             mv firmware_extracted/extracted_payload/* firmware_extracted/
+            rm payload_dumper.py update_metadata_pb2.py
           else
             echo "payload.bin not found. Proceeding with direct image files."
           fi
