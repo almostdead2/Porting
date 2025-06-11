@@ -6,7 +6,7 @@ on:
       firmware_url:
         description: 'Direct URL to the OnePlus Firmware ZIP file'
         required: true
-        default: 'https://otafsg1.h2os.com/patch/amazone2/GLO/OnePlus7TProOxygen/OnePlus7TProOxygen_13.Y.24_GLO_0240_2103170222/OnePlus7TProOxygen_13.Y.24_OTA_0240_all_2103170222_4258b86fff2.zip'
+        default: 'https://example.com/your_oneplus_firmware.zip'
       custom_init_url:
         description: 'Direct URL to your custom init binary (e.g., from a GDrive or GitHub Raw link)'
         required: false
@@ -26,10 +26,14 @@ jobs:
         with:
           python-version: '3.x'
 
-      - name: Install Dependencies
+- name: Install Dependencies
         run: |
           sudo apt update
-          sudo apt install -y unace unrar zip unzip p7zip-full bsdtar liblz4-tool simg2img brotli android-tools-fsutils default-jre mke2fs
+          sudo apt install -y unace unrar zip unzip p7zip-full liblz4-tool brotli default-jre
+          sudo apt install -y bsdtar
+          sudo apt install -y android-sdk-libsparse-utils
+          sudo apt install -y e2fsprogs
+
           pip install protobuf tqdm
 
           wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O apktool
