@@ -98,15 +98,25 @@ jobs:
               exit 1
             fi
 
-            python3 payload_dumper.py firmware_extracted/payload.bin --output firmware_extracted/extracted_payload
-            
-            if [ $? -ne 0 ]; then
-                echo "Error: payload_dumper.py failed to extract images. Review the output above for the Python traceback."
+            PAYLOAD_DUMPER_LOG="payload_dumper_output.log"
+
+            echo "Running payload_dumper.py and capturing output to $PAYLOAD_DUMPER_LOG..."
+            python3 payload_dumper.py firmware_extracted/payload.bin --output firmware_extracted/extracted_payload > "$PAYLOAD_DUMPER_LOG" 2>&1
+            EXIT_CODE=$?
+
+            echo "--- Start of payload_dumper.py output ---"
+            cat "$PAYLOAD_DUMPER_LOG"
+            echo "--- End of payload_dumper.py output ---"
+
+            if [ "$EXIT_CODE" -ne 0 ]; then
+                echo "Error: payload_dumper.py failed with exit code $EXIT_CODE. Review the output above for the Python traceback."
+                rm payload_dumper.py update_metadata_pb2.py "$PAYLOAD_DUMPER_LOG"
                 exit 1
             fi
+            
             echo "Images extracted from payload.bin to firmware_extracted/extracted_payload"
             mv firmware_extracted/extracted_payload/* firmware_extracted/
-            rm payload_dumper.py update_metadata_pb2.py
+            rm payload_dumper.py update_metadata_pb2.py "$PAYLOAD_DUMPER_LOG"
           else
             echo "payload.bin not found. Proceeding with direct image files."
           fi
