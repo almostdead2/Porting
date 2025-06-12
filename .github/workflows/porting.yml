@@ -162,30 +162,30 @@ jobs:
           mkdir -p system system_ext product odm opproduct
 
           echo "Extracting system.img to system/"
-          7z x system.img -osystem/
+          7z x firmware_images/system.img -osystem/
           if [ $? -ne 0 ]; then echo "7z extract system.img failed"; exit 1; fi
-          rm system.img
+          rm firmware_images/system.img
 
           echo "Extracting system_ext.img to system_ext/"
-          7z x system_ext.img -osystem_ext/
+          7z x firmware_images/system_ext.img -osystem_ext/
           if [ $? -ne 0 ]; then echo "7z extract system_ext.img failed"; exit 1; fi
-          rm system_ext.img
+          rm firmware_images/system_ext.img
 
           echo "Extracting product.img to product/"
-          7z x product.img -oproduct/
+          7z x firmware_images/product.img -oproduct/
           if [ $? -ne 0 ]; then echo "7z extract product.img failed"; exit 1; fi
-          rm product.img
+          rm firmware_images/product.img
 
           echo "Extracting odm.img to odm/"
-          7z x odm.img -oodm/
+          7z x firmware_images/odm.img -oodm/
           if [ $? -ne 0 ]; then echo "7z extract odm.img failed"; exit 1; fi
-          rm odm.img
+          rm firmware_images/odm.img
 
           if [ -f "firmware_images/opproduct.img" ]; then
             echo "Extracting opproduct.img to opproduct/"
-            7z x opproduct.img -oopproduct/
+            7z x firmware_images/opproduct.img -oopproduct/
             if [ $? -ne 0 ]; then echo "7z extract opproduct.img failed"; exit 1; fi
-            rm opproduct.img
+            rm firmware_images/opproduct.img
           else
             echo "opproduct.img not found, skipping extraction."
           fi
