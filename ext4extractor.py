@@ -1,7 +1,11 @@
 import sys
 import os
 from ext4 import Volume
-from ext4.constants import EXT4_FT_DIR, EXT4_FT_REG_FILE, EXT4_FT_SYMLINK
+
+EXT4_FT_UNKNOWN     = 0
+EXT4_FT_REG_FILE    = 1
+EXT4_FT_DIR         = 2
+EXT4_FT_SYMLINK     = 7
 
 def extract_ext4_contents(image_path, output_directory):
     """
