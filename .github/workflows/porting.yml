@@ -108,7 +108,7 @@ jobs:
             fi
 
             echo "Running payload_dumper.py from $PAYLOAD_DUMPER_REPO_DIR/payload_dumper.py..."
-            python3 "$PAYLOAD_DUMPER_REPO_DIR/payload_dumper.py" firmware_extracted/payload.bin --output firmware_extracted/extracted_payload
+            python3 "$PAYLOAD_DUMPER_REPO_DIR/payload_dumper.py" firmware_extracted/payload.bin
             
             if [ $? -ne 0 ]; then
                 echo "Error: payload_dumper.py failed to extract images."
@@ -117,7 +117,6 @@ jobs:
             fi
             
             echo "Images extracted from payload.bin to firmware_extracted/extracted_payload"
-            mv firmware_extracted/extracted_payload/* firmware_extracted/
             rm -rf "$PAYLOAD_DUMPER_REPO_DIR"
           else
             echo "payload.bin not found. Proceeding with direct image files."
