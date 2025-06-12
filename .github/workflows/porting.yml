@@ -385,6 +385,11 @@ jobs:
 
           sudo rm -rf "$SMALI_DIR"
 
+      - name: Ensure system folder is readable
+        run: |
+          chmod -R a+r system
+          chmod -R a+X system
+
       - name: Prepare make_ext4fs from repository
         run: |
           chmod +x make_ext4fs
