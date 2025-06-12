@@ -80,10 +80,6 @@ jobs:
               exit 1
           fi
           echo "Firmware extracted to firmware_extracted/"
-            echo "--- Contents of firmware_extracted/ after extraction ---"
-            ls -lh firmware_extracted/
-            echo "--- Contents of root workflow directory (for sanity check) ---"
-            ls -lh .
 
       - name: Extract Images from payload.bin (if present)
         run: |
@@ -135,9 +131,9 @@ jobs:
           mkdir -p "$TARGET_DIR"
 
           for img in "${REQUIRED_IMAGES[@]}"; do
-            if [ -f "firmware_extracted/$img" ]; then
+            if [ -f "firmware_extracted/extracted_payload/$img" ]; then
               echo "Found $img"
-              mv "firmware_extracted/$img" "$TARGET_DIR/"
+              mv "firmware_extracted/extracted_payload/$img" "$TARGET_DIR/"
             else
               echo "Warning: Required image $img not found."
               ALL_IMAGES_FOUND=false
@@ -147,7 +143,7 @@ jobs:
           for img in "${OPTIONAL_IMAGES[@]}"; do
             if [ -f "firmware_extracted/$img" ]; then
               echo "Found optional image $img"
-              mv "firmware_extracted/$img" "$TARGET_DIR/"
+              mv "firmware_extracted/extracted_payload/$img" "$TARGET_DIR/"
             else
               echo "Optional image $img not found."
             fi
