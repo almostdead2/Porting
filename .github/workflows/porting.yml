@@ -332,15 +332,19 @@ jobs:
       - name: Patch services.jar (Smali Modification)
         run: |
           SERVICES_JAR_PATH="system/system/framework/services.jar"
-          SMALI_FILE="system/system/framework/services/smali_classes2/com/android/server/wm/ActivityTaskManagerService\$LocalService.smali"
+          SMALI_DIR="system/system/framework/services" 
+          SMALI_FILE="$SMALI_DIR/smali_classes2/com/android/server/wm/ActivityTaskManagerService\$LocalService.smali"
 
           if [ ! -f "$SERVICES_JAR_PATH" ]; then
             echo "Error: services.jar not found at $SERVICES_JAR_PATH."
             exit 1
           fi
 
+          sudo mkdir -p "$SMALI_DIR"
+          if [ $? -ne 0 ]; then echo "Error: Failed to create decompilation output directory."; exit 1; fi
+
           echo "Decompiling services.jar..."
-          apktool d -r "$SERVICES_JAR_PATH" -o system/framework/services
+          sudo apktool d -r "$SERVICES_JAR_PATH" -o "$SMALI_DIR"
           if [ $? -ne 0 ]; then echo "Apktool decompilation failed."; exit 1; fi
 
           if [ ! -f "$SMALI_FILE" ]; then
@@ -350,37 +354,39 @@ jobs:
 
           echo "Applying smali modifications to $SMALI_FILE..."
 
-          sed -i '/invoke-static {}, Landroid\/os\/Build;->isBuildConsistent()Z/{
+          sudo sed -i '/invoke-static {}, Landroid\/os\/Build;->isBuildConsistent()Z/{
             n
             s/    move-result v1/    move-result v1\n\n    const\/4 v1, 0x1\n/
           }' "$SMALI_FILE"
           if [ $? -ne 0 ]; then echo "First sed replacement failed."; exit 1; fi
           echo "First modification (const/4 v1, 0x1) applied."
 
-          sed -i 's/if-nez v1, :cond_42/if-nez v1, :cond_43/g' "$SMALI_FILE"
+          sudo sed -i 's/if-nez v1, :cond_42/if-nez v1, :cond_43/g' "$SMALI_FILE"
           if [ $? -ne 0 ]; then echo "Second sed replacement failed."; exit 1; fi
           echo "Second modification (cond_42 to cond_43) applied."
 
-          sed -i 's/:cond_42/:cond_43/g' "$SMALI_FILE"
+          sudo sed -i 's/:cond_42/:cond_43/g' "$SMALI_FILE"
           if [ $? -ne 0 ]; then echo "Third sed replacement failed."; exit 1; fi
           echo "Third modification (:cond_42 to :cond_43 label) applied."
 
-          sed -i 's/\(:try_end_43\)\n    .catchall {:try_start_29 .. :try_end_43} :catchall_26/\:try_end_44\n    .catchall {:try_start_29 .. :try_end_44} :catchall_26/g' "$SMALI_FILE"
+          sudo sed -i 's/\(:try_end_43\)\n    .catchall {:try_start_29 .. :try_end_43} :catchall_26/\:try_end_44\n    .catchall {:try_start_29 .. :try_end_44} :catchall_26/g' "$SMALI_FILE"
           if [ $? -ne 0 ]; then echo "Fourth sed replacement (try_end_43) failed."; exit 1; fi
           echo "Fourth modification (:try_end_43 to :try_end_44) applied."
 
-          sed -i 's/:goto_47/:goto_48/g' "$SMALI_FILE"
+          sudo sed -i 's/:goto_47/:goto_48/g' "$SMALI_FILE"
           if [ $? -ne 0 ]; then echo "Fifth sed replacement (goto_47) failed."; exit 1; fi
           echo "Fifth modification (:goto_47 to :goto_48) applied."
 
-          sed -i 's/\(:try_start_47\)\n    monitor-exit v0\n    :try_end_48/\:try_start_48\n    monitor-exit v0\n    :try_end_49/g' "$SMALI_FILE"
+          sudo sed -i 's/\(:try_start_47\)\n    monitor-exit v0\n    :try_end_48/\:try_start_48\n    monitor-exit v0\n    :try_end_49/g' "$SMALI_FILE"
           if [ $? -ne 0 ]; then echo "Sixth sed replacement (try_start/end_4x) failed."; exit 1; fi
           echo "Sixth modification (:try_start/end_4x) applied."
 
           echo "Recompiling services.jar..."
-          apktool b system/framework/services -o "$SERVICES_JAR_PATH"
+          sudo apktool b "$SMALI_DIR" -o "$SERVICES_JAR_PATH"
           if [ $? -ne 0 ]; then echo "Apktool recompilation failed."; exit 1; fi
           echo "services.jar recompiled successfully."
+
+          sudo rm -rf "$SMALI_DIR"
 
       - name: Convert system folder to system.img with specific size
         run: |
