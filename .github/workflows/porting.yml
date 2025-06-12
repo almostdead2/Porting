@@ -159,7 +159,6 @@ jobs:
 
       - name: Extract system, system_ext, product, odm, opproduct images (ext4extractor)
         run: |
-          pip install ext4
           python3 ext4extractor.py firmware_images/system.img system/
           python3 ext4extractor.py firmware_images/system_ext.img system_ext/
           python3 ext4extractor.py firmware_images/product.img product/
