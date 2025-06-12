@@ -80,6 +80,10 @@ jobs:
               exit 1
           fi
           echo "Firmware extracted to firmware_extracted/"
+            echo "--- Contents of firmware_extracted/ after extraction ---"
+            ls -lh firmware_extracted/
+            echo "--- Contents of root workflow directory (for sanity check) ---"
+            ls -lh .
 
       - name: Extract Images from payload.bin (if present)
         run: |
