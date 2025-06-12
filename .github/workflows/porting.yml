@@ -122,6 +122,11 @@ jobs:
             echo "payload.bin not found. Proceeding with direct image files."
           fi
 
+      - name: Find system.img anywhere
+        run: |
+          echo "Searching for system.img from / ..."
+          find / -name "system.img" 2>/dev/null || echo "system.img not found."
+
       - name: Consolidate and Select Required Images
         run: |
           REQUIRED_IMAGES=("system.img" "product.img" "system_ext.img" "odm.img" "vendor.img" "boot.img")
