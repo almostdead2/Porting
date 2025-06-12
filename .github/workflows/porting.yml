@@ -122,11 +122,6 @@ jobs:
             echo "payload.bin not found. Proceeding with direct image files."
           fi
 
-      - name: Find system.img anywhere
-        run: |
-          echo "Searching for system.img from / ..."
-          find / -name "system.img" 2>/dev/null || echo "system.img not found."
-
       - name: Consolidate and Select Required Images
         run: |
           REQUIRED_IMAGES=("system.img" "product.img" "system_ext.img" "odm.img" "vendor.img" "boot.img")
@@ -136,9 +131,9 @@ jobs:
           mkdir -p "$TARGET_DIR"
 
           for img in "${REQUIRED_IMAGES[@]}"; do
-            if [ -f "firmware_extracted/extracted_payload/$img" ]; then
+            if [ -f "/home/runner/work/Porting/Porting/output/$img" ]; then
               echo "Found $img"
-              mv "firmware_extracted/extracted_payload/$img" "$TARGET_DIR/"
+              mv "/home/runner/work/Porting/Porting/output/$img" "$TARGET_DIR/"
             else
               echo "Warning: Required image $img not found."
               ALL_IMAGES_FOUND=false
@@ -146,9 +141,9 @@ jobs:
           done
 
           for img in "${OPTIONAL_IMAGES[@]}"; do
-            if [ -f "firmware_extracted/extracted_payload/$img" ]; then
+            if [ -f "/home/runner/work/Porting/Porting/output/$img" ]; then
               echo "Found optional image $img"
-              mv "firmware_extracted/extracted_payload/$img" "$TARGET_DIR/"
+              mv "/home/runner/work/Porting/Porting/output/$img" "$TARGET_DIR/"
             else
               echo "Optional image $img not found."
             fi
