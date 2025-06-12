@@ -24,7 +24,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.8'
+          python-version: '3.x'
 
       - name: Install Dependencies
         run: |
@@ -84,19 +84,41 @@ jobs:
       - name: Extract Images from payload.bin (if present)
         run: |
           if [ -f firmware_extracted/payload.bin ]; then
-            echo "payload.bin found. Extracting images using payload_dumper.py..."
-            wget -q https://raw.githubusercontent.com/AnupamMy/payload_dumper/master/payload_dumper.py -O payload_dumper.py
-            if [ ! -f payload_dumper.py ]; then
-              echo "Error: payload_dumper.py download failed."
+            echo "payload.bin found. Extracting images using payload_dumper.py from vm03/payload_dumper.git..."
+
+            PAYLOAD_DUMPER_REPO_DIR="payload_dumper_repo"
+
+            echo "Cloning https://github.com/vm03/payload_dumper.git into $PAYLOAD_DUMPER_REPO_DIR..."
+            git clone https://github.com/vm03/payload_dumper.git "$PAYLOAD_DUMPER_REPO_DIR"
+            if [ ! -d "$PAYLOAD_DUMPER_REPO_DIR" ]; then
+              echo "Error: Failed to clone vm03/payload_dumper repository."
               exit 1
             fi
-            python3 payload_dumper.py firmware_extracted/payload.bin --output firmware_extracted/extracted_payload
+
+            if [ -f "$PAYLOAD_DUMPER_REPO_DIR/requirements.txt" ]; then
+              echo "Installing payload_dumper requirements from $PAYLOAD_DUMPER_REPO_DIR/requirements.txt..."
+              python3 -m pip install -r "$PAYLOAD_DUMPER_REPO_DIR/requirements.txt"
+              if [ $? -ne 0 ]; then
+                echo "Error: Failed to install payload_dumper requirements."
+                rm -rf "$PAYLOAD_DUMPER_REPO_DIR"
+                exit 1
+              fi
+            else
+              echo "Warning: No requirements.txt found in $PAYLOAD_DUMPER_REPO_DIR. Skipping pip install for this repo."
+            fi
+
+            echo "Running payload_dumper.py from $PAYLOAD_DUMPER_REPO_DIR/payload_dumper.py..."
+            python3 "$PAYLOAD_DUMPER_REPO_DIR/payload_dumper.py" firmware_extracted/payload.bin --output firmware_extracted/extracted_payload
+            
             if [ $? -ne 0 ]; then
                 echo "Error: payload_dumper.py failed to extract images."
+                rm -rf "$PAYLOAD_DUMPER_REPO_DIR"
                 exit 1
             fi
+            
             echo "Images extracted from payload.bin to firmware_extracted/extracted_payload"
             mv firmware_extracted/extracted_payload/* firmware_extracted/
+            rm -rf "$PAYLOAD_DUMPER_REPO_DIR"
           else
             echo "payload.bin not found. Proceeding with direct image files."
           fi
