@@ -317,7 +317,7 @@ jobs:
               TARGET_DIR="$app_path_base/$app_name"
               if [ -d "$TARGET_DIR" ]; then
                 echo "Removing $TARGET_DIR..."
-                rm -rf "$TARGET_DIR"
+                sudo rm -rf "$TARGET_DIR"
                 APP_FOUND=true
                 break
               fi
