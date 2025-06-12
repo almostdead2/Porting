@@ -290,8 +290,8 @@ jobs:
           mkdir -p "$KEYLAYOUT_DIR"
 
           echo "Creating empty uinput-fpc.kl and uinput-goodix.kl..."
-          touch "$KEYLAYOUT_DIR/uinput-fpc.kl"
-          touch "$KEYLAYOUT_DIR/uinput-goodix.kl"
+          sudo touch "$KEYLAYOUT_DIR/uinput-fpc.kl"
+          sudo touch "$KEYLAYOUT_DIR/uinput-goodix.kl"
           echo "Keylayout files created."
 
       - name: Remove Unwanted Apps
