@@ -387,8 +387,8 @@ jobs:
 
       - name: Ensure system folder is readable
         run: |
-          chmod -R a+r system
-          chmod -R a+X system
+          sudo chmod -R a+r system
+          sudo chmod -R a+X system
 
       - name: Prepare make_ext4fs from repository
         run: |
