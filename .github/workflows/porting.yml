@@ -329,30 +329,10 @@ jobs:
 
           echo "Unwanted apps removal attempt complete."
 
-      - name: Verify services.jar existence and path
-        run: |
-          echo "Listing contents of system/ (where system.img was extracted):"
-          ls -la system/
-          echo ""
-
-          echo "Listing contents of system/framework/:"
-          ls -la system/framework/
-          echo ""
-
-          EXPECTED_JAR_PATH="system/framework/services.jar"
-          if [ -f "$EXPECTED_JAR_PATH" ]; then
-            echo "SUCCESS: services.jar FOUND at $EXPECTED_JAR_PATH."
-            echo "File size: $(stat -c %s "$EXPECTED_JAR_PATH") bytes"
-          else
-            echo "ERROR: services.jar NOT FOUND at the expected path: $EXPECTED_JAR_PATH."
-            echo "This indicates an issue with the preceding extraction step or the firmware itself."
-            exit 1
-          fi
-
       - name: Patch services.jar (Smali Modification)
         run: |
-          SERVICES_JAR_PATH="/system/framework/services.jar"
-          SMALI_FILE="/system/framework/services/smali_classes2/com/android/server/wm/ActivityTaskManagerService\$LocalService.smali"
+          SERVICES_JAR_PATH="system/system/framework/services.jar"
+          SMALI_FILE="system/system/framework/services/smali_classes2/com/android/server/wm/ActivityTaskManagerService\$LocalService.smali"
 
           if [ ! -f "$SERVICES_JAR_PATH" ]; then
             echo "Error: services.jar not found at $SERVICES_JAR_PATH."
