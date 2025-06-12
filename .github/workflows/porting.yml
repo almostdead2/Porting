@@ -411,9 +411,9 @@ jobs:
           fi
 
           if [ -n "$FILE_CONTEXTS_PATH" ]; then
-            sudo make_ext4fs -s -S "$FILE_CONTEXTS_PATH" -L system -a /system -l "$TARGET_SYSTEM_IMG_SIZE_BYTES" system_new.img system/
+            make_ext4fs -s -S "$FILE_CONTEXTS_PATH" -L system -a /system -l "$TARGET_SYSTEM_IMG_SIZE_BYTES" system_new.img system/
           else
-            sudo make_ext4fs -s -L system -a /system -l "$TARGET_SYSTEM_IMG_SIZE_BYTES" system_new.img system/
+            make_ext4fs -s -L system -a /system -l "$TARGET_SYSTEM_IMG_SIZE_BYTES" system_new.img system/
           fi
 
           if [ $? -ne 0 ]; then echo "make_ext4fs failed to create system_new.img"; exit 1; fi
