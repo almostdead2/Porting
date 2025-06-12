@@ -393,7 +393,7 @@ jobs:
 
       - name: Convert system folder to system.img with specific size
         run: |
-          TARGET_SYSTEM_IMG_SIZE_BYTES=5221225472
+          TARGET_SYSTEM_IMG_SIZE_BYTES=3221225472
           SYSTEM_FOLDER_SIZE=$(sudo du -bs system | awk '{print $1}')
           echo "Current system folder size: $SYSTEM_FOLDER_SIZE bytes"
 
@@ -411,9 +411,9 @@ jobs:
           fi
 
           if [ -n "$FILE_CONTEXTS_PATH" ]; then
-            sudo make_ext4fs -s -S "$FILE_CONTEXTS_PATH" -L system -a /system -l "$TARGET_SYSTEM_IMG_SIZE_BYTES" system_new.img system/
+            make_ext4fs -s -S "$FILE_CONTEXTS_PATH" -L system -a /system -l "$TARGET_SYSTEM_IMG_SIZE_BYTES" system_new.img system/
           else
-            sudo make_ext4fs -s -L system -a /system -l "$TARGET_SYSTEM_IMG_SIZE_BYTES" system_new.img system/
+            make_ext4fs -s -L system -a /system -l "$TARGET_SYSTEM_IMG_SIZE_BYTES" system_new.img system/
           fi
 
           if [ $? -ne 0 ]; then echo "make_ext4fs failed to create system_new.img"; exit 1; fi
