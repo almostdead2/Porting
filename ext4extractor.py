@@ -2,11 +2,6 @@ import sys
 import os
 from ext4 import Volume
 
-EXT4_FT_UNKNOWN     = 0
-EXT4_FT_REG_FILE    = 1
-EXT4_FT_DIR         = 2
-EXT4_FT_SYMLINK     = 7
-
 def extract_ext4_contents(image_path, output_directory):
     """
     Extracts files and directories from an ext4 image to a specified output directory.
@@ -42,7 +37,7 @@ def _recursive_extract(volume, current_inode, current_fs_path_bytes, target_host
     Internal helper function.
     """
     try:
-        if current_inode.file_type == EXT4_FT_DIR:
+        if current_inode.is_directory():
             print(f"  Creating directory: {target_host_path}")
             os.makedirs(target_host_path, exist_ok=True)
 
@@ -59,12 +54,12 @@ def _recursive_extract(volume, current_inode, current_fs_path_bytes, target_host
 
                 _recursive_extract(volume, child_inode, child_fs_path_bytes, child_target_host_path)
 
-        elif current_inode.file_type == EXT4_FT_REG_FILE:
+        elif current_inode.is_regular():
             print(f"  Extracting file: {target_host_path}")
             with open(target_host_path, "wb") as f_out:
                 f_out.write(current_inode.open().read())
 
-        elif current_inode.file_type == EXT4_FT_SYMLINK:
+        elif current_inode.is_symlink():
             print(f"  Creating symlink: {target_host_path}")
             try:
                 link_target = current_inode.open().read().decode('utf-8', errors='ignore')
