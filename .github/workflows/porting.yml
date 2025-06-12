@@ -393,7 +393,7 @@ jobs:
 
       - name: Convert system folder to system.img with specific size
         run: |
-          TARGET_SYSTEM_IMG_SIZE_BYTES=3221225472
+          TARGET_SYSTEM_IMG_SIZE_BYTES=5221225472
           SYSTEM_FOLDER_SIZE=$(sudo du -bs system | awk '{print $1}')
           echo "Current system folder size: $SYSTEM_FOLDER_SIZE bytes"
 
