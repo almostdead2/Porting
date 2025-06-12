@@ -157,40 +157,16 @@ jobs:
             exit 1
           fi
 
-      - name: Extract System, System_ext, Product, ODM, Opproduct Images
+      - name: Extract system, system_ext, product, odm, opproduct images (ext4extractor)
         run: |
-          mkdir -p system system_ext product odm opproduct
-
-          echo "Extracting system.img to system/"
-          7z x firmware_images/system.img -osystem/
-          if [ $? -ne 0 ]; then echo "7z extract system.img failed"; exit 1; fi
-          rm firmware_images/system.img
-
-          echo "Extracting system_ext.img to system_ext/"
-          7z x firmware_images/system_ext.img -osystem_ext/
-          if [ $? -ne 0 ]; then echo "7z extract system_ext.img failed"; exit 1; fi
-          rm firmware_images/system_ext.img
-
-          echo "Extracting product.img to product/"
-          7z x firmware_images/product.img -oproduct/
-          if [ $? -ne 0 ]; then echo "7z extract product.img failed"; exit 1; fi
-          rm firmware_images/product.img
-
-          echo "Extracting odm.img to odm/"
-          7z x firmware_images/odm.img -oodm/
-          if [ $? -ne 0 ]; then echo "7z extract odm.img failed"; exit 1; fi
-          rm firmware_images/odm.img
-
-          if [ -f "firmware_images/opproduct.img" ]; then
-            echo "Extracting opproduct.img to opproduct/"
-            7z x firmware_images/opproduct.img -oopproduct/
-            if [ $? -ne 0 ]; then echo "7z extract opproduct.img failed"; exit 1; fi
-            rm firmware_images/opproduct.img
-          else
-            echo "opproduct.img not found, skipping extraction."
+          pip install ext4
+          python3 ext4extractor.py firmware_images/system.img system/
+          python3 ext4extractor.py firmware_images/system_ext.img system_ext/
+          python3 ext4extractor.py firmware_images/product.img product/
+          python3 ext4extractor.py firmware_images/odm.img odm/
+          if [ -f firmware_images/opproduct.img ]; then
+            python3 ext4extractor.py firmware_images/opproduct.img opproduct/
           fi
-
-          echo "Images extracted to their respective folders."
 
       - name: Merge System Partitions
         run: |
