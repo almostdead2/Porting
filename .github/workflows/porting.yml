@@ -331,8 +331,8 @@ jobs:
 
       - name: Patch services.jar (Smali Modification)
         run: |
-          SERVICES_JAR_PATH="/system/framework/services.jar"
-          SMALI_FILE="/system/framework/services/smali_classes2/com/android/server/wm/ActivityTaskManagerService\$LocalService.smali"
+          SERVICES_JAR_PATH="/system/system/framework/services.jar"
+          SMALI_FILE="/system/system/framework/services/smali_classes2/com/android/server/wm/ActivityTaskManagerService\$LocalService.smali"
 
           if [ ! -f "$SERVICES_JAR_PATH" ]; then
             echo "Error: services.jar not found at $SERVICES_JAR_PATH."
