@@ -432,12 +432,12 @@ jobs:
       - name: Convert system.img to system.new.dat.br, system.transfer.list
         run: |
           echo "Cloning rimg2sdat tools..."
-          git clone https://github.com/AnupamMy/sdat2img.git --depth=1 rimg2sdat_tools
-          if [ ! -d "rimg2sdat_tools" ]; then echo "Failed to clone sdat2img tools."; exit 1; fi
+          git clone https://github.com/xpirt/img2sdat.git --depth=1 img2sdat_tools
+          if [ ! -d "img2sdat_tools" ]; then echo "Failed to clone img2sdat tools."; exit 1; fi
 
           echo "Converting system.img to system.new.dat and system.transfer.list..."
-          python3 rimg2sdat_tools/rimg2sdat.py firmware_images/system.img system.new.dat system.transfer.list
-          if [ $? -ne 0 ]; then echo "rimg2sdat.py failed."; exit 1; fi
+          python3 img2sdat_tools/img2sdat.py firmware_images/system.img -o firmware_images -v 4
+          if [ $? -ne 0 ]; then echo "img2sdat.py failed."; exit 1; fi
 
           echo "Compressing system.new.dat to system.new.dat.br..."
           brotli -q 11 system.new.dat -o system.new.dat.br
