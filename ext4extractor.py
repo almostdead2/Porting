@@ -5,12 +5,14 @@ from ext4 import Volume
 def extract_dir(volume, inode, outdir):
     if not os.path.exists(outdir):
         os.makedirs(outdir, exist_ok=True)
-    for entry_name, inode_idx in inode.opendir():
-        if entry_name in (b'.', b'..'):
+    for entry in inode.opendir():
+        # entry is a DirectoryEntry object
+        name = entry.name
+        if name in (b'.', b'..'):
             continue
-        name = entry_name.decode(errors='ignore')
-        child_inode = volume.get_inode(inode_idx)
-        outpath = os.path.join(outdir, name)
+        name_str = name.decode(errors='ignore')
+        child_inode = volume.get_inode(entry.inode)
+        outpath = os.path.join(outdir, name_str)
         if child_inode.is_dir:
             extract_dir(volume, child_inode, outpath)
         elif child_inode.is_file:
