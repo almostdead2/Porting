@@ -1,6 +1,7 @@
 import sys
 import os
-from ext4 import Volume, EXT4_FT_DIR, EXT4_FT_REG_FILE, EXT4_FT_SYMLINK
+from ext4 import Volume
+from ext4.constants import EXT4_FT_DIR, EXT4_FT_REG_FILE, EXT4_FT_SYMLINK
 
 def extract_ext4_contents(image_path, output_directory):
     """
