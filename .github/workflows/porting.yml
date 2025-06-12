@@ -157,15 +157,65 @@ jobs:
             exit 1
           fi
 
-      - name: Extract system, system_ext, product, odm, opproduct images (ext4extractor)
+      - name: Extract system, system_ext, product, odm, opproduct images (Mounting)
         run: |
-          pip install ext4
-          python3 ext4extractor.py firmware_images/system.img system/
-          python3 ext4extractor.py firmware_images/system_ext.img system_ext/
-          python3 ext4extractor.py firmware_images/product.img product/
-          python3 ext4extractor.py firmware_images/odm.img odm/
-          if [ -f firmware_images/opproduct.img ]; then
-            python3 ext4extractor.py firmware_images/opproduct.img opproduct/
+          extract_image_via_mount() {
+            local img_file="$1"
+            local target_dir="$2"
+            local mount_point="${target_dir}_mount"
+
+            echo "Mounting and extracting $img_file to $target_dir/..."
+            mkdir -p "$mount_point"
+
+            if [ ! -f "firmware_images/$img_file" ]; then
+              echo "Warning: Image file firmware_images/$img_file not found. Skipping extraction for this image."
+              return 0
+            fi
+
+            LOOP_DEV=$(sudo losetup -f --show "firmware_images/$img_file")
+            if [ -z "$LOOP_DEV" ]; then
+              echo "Error: Failed to assign loop device for $img_file."
+              return 1
+            fi
+            echo "Loop device assigned for $img_file: $LOOP_DEV"
+
+            sudo mount -t ext4 -o ro "$LOOP_DEV" "$mount_point"
+            if [ $? -ne 0 ]; then
+              echo "Error: Failed to mount $img_file. Trying to detach loop device."
+              sudo losetup -d "$LOOP_DEV"
+              return 1
+            fi
+            echo "Mounted $img_file to $mount_point/."
+
+            mkdir -p "$target_dir"
+            
+            echo "Copying contents from $mount_point/ to $target_dir/..."
+            sudo cp -a "$mount_point/." "$target_dir/"
+            if [ $? -ne 0 ]; then
+              echo "Error: Failed to copy contents from $img_file."
+              sudo umount "$mount_point"
+              sudo losetup -d "$LOOP_DEV"
+              return 1
+            fi
+
+            sudo umount "$mount_point"
+            echo "Unmounted $mount_point."
+            sudo losetup -d "$LOOP_DEV"
+            echo "Detached loop device $LOOP_DEV."
+            rmdir "$mount_point"
+            echo "Successfully extracted $img_file."
+            return 0
+          }
+
+          extract_image_via_mount "system.img" "system" || exit 1
+          extract_image_via_mount "system_ext.img" "system_ext" || exit 1
+          extract_image_via_mount "product.img" "product" || exit 1
+          extract_image_via_mount "odm.img" "odm" || exit 1
+
+          if [ -f "firmware_images/opproduct.img" ]; then
+            extract_image_via_mount "opproduct.img" "opproduct" || exit 1
+          else
+            echo "opproduct.img not found. Skipping extraction."
           fi
 
       - name: Merge System Partitions
