@@ -222,25 +222,13 @@ jobs:
         run: |
           echo "Copying system_ext/ contents to system/system_ext..."
           mkdir -p system/system_ext
-          cp -r system_ext/* system/system_ext/
+          sudo cp -r system_ext/* system/system_ext/
           if [ $? -ne 0 ]; then echo "Copy system_ext failed"; exit 1; fi
 
           echo "Copying product/ contents to system/product..."
           mkdir -p system/product
-          cp -r product/* system/product/
+          sudo cp -r product/* system/product/
           if [ $? -ne 0 ]; then echo "Copy product failed"; exit 1; fi
-
-          echo "Copying odm/ contents to system/odm..."
-          mkdir -p system/odm
-          cp -r odm/* system/odm/
-          if [ $? -ne 0 ]; then echo "Copy odm failed"; exit 1; fi
-
-          if [ -d "opproduct" ]; then
-            echo "Copying opproduct/ contents to system/opproduct..."
-            mkdir -p system/opproduct
-            cp -r opproduct/* system/opproduct/
-            if [ $? -ne 0 ]; then echo "Copy opproduct failed"; exit 1; fi
-          fi
 
           echo "All partition contents merged into system/."
 
