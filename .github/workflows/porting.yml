@@ -126,7 +126,7 @@ jobs:
             echo "--- Contents of payload_dumper/ (as suggested, checking for output here) ---"
             ls -lhR "$PAYLOAD_DUMPER_REPO_DIR"
             echo "--- Contents of firmware_extracted/extracted_payload/ after extraction ---"
-            ls -lhR "$PAYLOAD_DUMPER_REPO_DIR"/extracted_payload/
+            ls -lhR "$PAYLOAD_DUMPER_REPO_DIR"/output/
 
       - name: Consolidate and Select Required Images
         run: |
