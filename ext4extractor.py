@@ -1,6 +1,6 @@
 import sys
 import os
-from ext4 import Volume, InodeType
+from ext4 import Volume
 
 def extract_ext4_contents(image_path, output_directory):
     """
