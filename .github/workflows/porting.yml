@@ -340,6 +340,7 @@ jobs:
             exit 1
           fi
 
+          sudo rm -rf "$SMALI_DIR"
           sudo mkdir -p "$SMALI_DIR"
           if [ $? -ne 0 ]; then echo "Error: Failed to create decompilation output directory."; exit 1; fi
 
