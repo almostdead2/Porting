@@ -34,7 +34,7 @@ jobs:
           sudo apt install -y android-sdk-libsparse-utils
           sudo apt install -y e2fsprogs
 
-          pip install protobuf tqdm
+          pip install protobuf
 
           wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O apktool
           wget https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar -O apktool.jar
@@ -86,47 +86,41 @@ jobs:
           if [ -f firmware_extracted/payload.bin ]; then
             echo "payload.bin found. Extracting images using payload_dumper.py from vm03/payload_dumper.git..."
 
-            PAYLOAD_DUMPER_REPO_DIR="payload_dumper_repo"
+            PAYLOAD_DUMPER_DIR="payload_dumper"
 
-            echo "Cloning https://github.com/vm03/payload_dumper.git into $PAYLOAD_DUMPER_REPO_DIR..."
-            git clone https://github.com/vm03/payload_dumper.git "$PAYLOAD_DUMPER_REPO_DIR"
-            if [ ! -d "$PAYLOAD_DUMPER_REPO_DIR" ]; then
+            echo "Cloning https://github.com/vm03/payload_dumper.git into $PAYLOAD_DUMPER_DIR..."
+            git clone https://github.com/vm03/payload_dumper.git "$PAYLOAD_DUMPER_DIR"
+            if [ ! -d "$PAYLOAD_DUMPER_DIR" ]; then
               echo "Error: Failed to clone vm03/payload_dumper repository."
               exit 1
             fi
 
-            if [ -f "$PAYLOAD_DUMPER_REPO_DIR/requirements.txt" ]; then
-              echo "Installing payload_dumper requirements from $PAYLOAD_DUMPER_REPO_DIR/requirements.txt..."
-              python3 -m pip install -r "$PAYLOAD_DUMPER_REPO_DIR/requirements.txt"
+            if [ -f "$PAYLOAD_DUMPER_DIR/requirements.txt" ]; then
+              echo "Installing payload_dumper requirements from $PAYLOAD_DUMPER_DIR/requirements.txt..."
+              python3 -m pip install -r "$PAYLOAD_DUMPER_DIR/requirements.txt"
               if [ $? -ne 0 ]; then
                 echo "Error: Failed to install payload_dumper requirements."
+                rm -rf "$PAYLOAD_DUMPER_DIR"
                 exit 1
               fi
             else
-              echo "Warning: No requirements.txt found in $PAYLOAD_DUMPER_REPO_DIR. Skipping pip install for this repo."
+              echo "Warning: No requirements.txt found in $PAYLOAD_DUMPER_DIR. Skipping pip install for this repo."
             fi
 
-            echo "Running payload_dumper.py from $PAYLOAD_DUMPER_REPO_DIR/payload_dumper.py..."
-            python3 "$PAYLOAD_DUMPER_REPO_DIR/payload_dumper.py" firmware_extracted/payload.bin
+            echo "Running payload_dumper.py from $PAYLOAD_DUMPER_DIR/payload_dumper.py..."
+            python3 "$PAYLOAD_DUMPER_DIR/payload_dumper.py" firmware_extracted/payload.bin
             
             if [ $? -ne 0 ]; then
                 echo "Error: payload_dumper.py failed to extract images."
+                rm -rf "$PAYLOAD_DUMPER_DIR"
                 exit 1
             fi
             
             echo "Images extracted from payload.bin to firmware_extracted/extracted_payload"
+            rm -rf "$PAYLOAD_DUMPER_DIR"
           else
             echo "payload.bin not found. Proceeding with direct image files."
           fi
-
-            echo "--- Contents of / (to see) ---"
-            ls -lh /
-            echo "--- Contents of firmware_extracted/ (for sanity check) ---"
-            ls -lh firmware_extracted/
-            echo "--- Contents of payload_dumper/ (as suggested, checking for output here) ---"
-            ls -lhR "$PAYLOAD_DUMPER_REPO_DIR"
-            echo "--- Contents of firmware_extracted/extracted_payload/ after extraction ---"
-            ls -lhR "$PAYLOAD_DUMPER_REPO_DIR"/output/
 
       - name: Consolidate and Select Required Images
         run: |
@@ -147,7 +141,7 @@ jobs:
           done
 
           for img in "${OPTIONAL_IMAGES[@]}"; do
-            if [ -f "firmware_extracted/$img" ]; then
+            if [ -f "firmware_extracted/extracted_payload/$img" ]; then
               echo "Found optional image $img"
               mv "firmware_extracted/extracted_payload/$img" "$TARGET_DIR/"
             else
