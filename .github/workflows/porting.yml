@@ -100,7 +100,6 @@ jobs:
               python3 -m pip install -r "$PAYLOAD_DUMPER_REPO_DIR/requirements.txt"
               if [ $? -ne 0 ]; then
                 echo "Error: Failed to install payload_dumper requirements."
-                rm -rf "$PAYLOAD_DUMPER_REPO_DIR"
                 exit 1
               fi
             else
@@ -112,12 +111,10 @@ jobs:
             
             if [ $? -ne 0 ]; then
                 echo "Error: payload_dumper.py failed to extract images."
-                rm -rf "$PAYLOAD_DUMPER_REPO_DIR"
                 exit 1
             fi
             
             echo "Images extracted from payload.bin to firmware_extracted/extracted_payload"
-            rm -rf "$PAYLOAD_DUMPER_REPO_DIR"
           else
             echo "payload.bin not found. Proceeding with direct image files."
           fi
