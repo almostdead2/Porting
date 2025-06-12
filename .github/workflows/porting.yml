@@ -122,6 +122,11 @@ jobs:
             echo "payload.bin not found. Proceeding with direct image files."
           fi
 
+            echo "--- Contents of firmware_extracted/extracted_payload/ after extraction ---"
+            ls -lhR firmware_extracted/extracted_payload/  # List recursively
+            echo "--- Contents of firmware_extracted/ (for sanity check) ---"
+            ls -lh firmware_extracted/
+
       - name: Consolidate and Select Required Images
         run: |
           REQUIRED_IMAGES=("system.img" "product.img" "system_ext.img" "odm.img" "vendor.img" "boot.img")
