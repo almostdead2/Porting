@@ -431,12 +431,12 @@ jobs:
 
       - name: Convert system.img to system.new.dat.br, system.transfer.list
         run: |
-          echo "Cloning rimg2sdat tools..."
+          echo "Cloning img2sdat tools..."
           git clone https://github.com/IsHacker003/img2sdat.git --depth=1 img2sdat_tools
           if [ ! -d "img2sdat_tools" ]; then echo "Failed to clone img2sdat tools."; exit 1; fi
 
           echo "Converting system.img to system.new.dat and system.transfer.list..."
-          python3 img2sdat_tools/img2sdat.py firmware_images/system.img -o firmware_images -v 4
+          python3 img2sdat_tools/img2sdat.py firmware_images/system.img
           if [ $? -ne 0 ]; then echo "img2sdat.py failed."; exit 1; fi
 
           echo "Compressing system.new.dat to system.new.dat.br..."
@@ -488,5 +488,5 @@ jobs:
       - name: Clean Up
         run: |
           echo "Cleaning up workspace..."
-          rm -rf system system_ext product odm opproduct firmware_extracted firmware_images rimg2sdat_tools payload_dumper.py *.zip *.rar *.7z *.img *.dat *.br custom_init
+          rm -rf system system_ext product odm opproduct firmware_extracted firmware_images img2sdat_tools payload_dumper.py *.zip *.rar *.7z *.img *.dat *.br custom_init
           echo "Cleanup complete."
