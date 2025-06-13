@@ -429,13 +429,19 @@ jobs:
           ls -lh firmware_images/system.img
           ls -l firmware_images/system.img | awk '{print $5 " bytes"}'
 
+      - name: Clean Up needed for space
+        run: |
+          echo "Cleaning up for space..."
+          rm -rf system system_ext product odm opproduct firmware_extracted output payload_dumper *.zip *.rar *.7z system_ext.img product.img odm.img opproduct.img vendor.img custom_init
+          echo "Cleanup complete."
+
       - name: Convert system.img to system.new.dat.br, system.transfer.list
         run: |
           echo "Cloning img2sdat tools..."
           git clone https://github.com/IsHacker003/img2sdat.git --depth=1 img2sdat_tools
           if [ ! -d "img2sdat_tools" ]; then echo "Failed to clone img2sdat tools."; exit 1; fi
 
-          echo "Converting system.img to system.new.dat and system.transfer.list..."
+          echo "Converting system.img to system.new.dat, system.patch.dat and system.transfer.list..."
           python3 img2sdat_tools/img2sdat.py firmware_images/system.img -v 4
           if [ $? -ne 0 ]; then echo "img2sdat.py failed."; exit 1; fi
 
@@ -451,7 +457,7 @@ jobs:
           BUILD_DATE=$(date +%Y%m%d)
           ROM_NAME="OnePlus-Port-ROM-$BUILD_DATE.zip"
           echo "Zipping final files into $ROM_NAME..."
-          zip -r "$ROM_NAME" system.new.dat.br system.transfer.list firmware_images/boot.img
+          zip -r "$ROM_NAME" system.new.dat.br system.patch.dat system.transfer.list
           if [ $? -ne 0 ]; then echo "Zipping failed."; exit 1; fi
           echo "ROM_NAME=$ROM_NAME" >> "$GITHUB_ENV"
           echo "$ROM_NAME created."
