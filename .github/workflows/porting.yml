@@ -262,7 +262,7 @@ jobs:
         run: |
           ODT_BUILD_PROP="odm/etc/buildinfo/build.prop"
           OPPRODUCT_BUILD_PROP="opproduct/build.prop"
-          SYSTEM_BUILD_PROP="system/system/build.prop"
+          SYSTEM_BUILD_PROP="/system/build.prop"
           SOURCE_BUILD_PROP="" 
 
           if [ -f "$ODT_BUILD_PROP" ]; then
