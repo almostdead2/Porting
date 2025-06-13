@@ -234,7 +234,7 @@ jobs:
         run: |
           SOURCE_INIT_PATH="${{ github.workspace }}/my_init_files/init"
 
-          INIT_TARGET_PATH="system/bin/init"
+          INIT_TARGET_PATH="system/system/bin/init"
 
           if [ ! -f "$SOURCE_INIT_PATH" ]; then
             echo "Warning: Custom init binary not found at $SOURCE_INIT_PATH."
