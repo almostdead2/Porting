@@ -451,7 +451,7 @@ jobs:
             echo "Warning: OpOutputChooserDialog.smali not found. Skipping modification."
           fi
 
-          VOLUME_DIALOG_IMPL_FILE="$DECOMPILED_DIR/smali_classes2/com/android/systemui/volume/VolumeDialogImpl.smali"
+          VOLUME_DIALOG_IMPL_FILE="$DECOMPILED_DIR/smali/com/android/systemui/volume/VolumeDialogImpl.smali"
           if [ -f "$VOLUME_DIALOG_IMPL_FILE" ]; then
             echo "Modifying VolumeDialogImpl.smali..."
             sudo sed -i '/:cond_11/{n;s/    const\/4 p0, 0x0/    const\/4 p0, 0x1/}' "$VOLUME_DIALOG_IMPL_FILE"
@@ -459,7 +459,7 @@ jobs:
             echo "Warning: VolumeDialogImpl.smali not found. Skipping modification."
           fi
 
-          DOZE_SENSORS_PICKUP_CHECK_FILE="$DECOMPILED_DIR/smali_classes2/com/android/systemui/doze/DozeSensors\$PickupCheck.smali"
+          DOZE_SENSORS_PICKUP_CHECK_FILE="$DECOMPILED_DIR/smali/com/android/systemui/doze/DozeSensors\$PickupCheck.smali"
           if [ -f "$DOZE_SENSORS_PICKUP_CHECK_FILE" ]; then
             echo "Modifying DozeSensors\$PickupCheck.smali..."
             sudo sed -i 's/0x1fa2652/0x1fa265c/g' "$DOZE_SENSORS_PICKUP_CHECK_FILE"
@@ -467,7 +467,7 @@ jobs:
             echo "Warning: DozeSensors\$PickupCheck.smali not found. Skipping modification."
           fi
 
-          DOZE_MACHINE_STATE_FILE="$DECOMPILED_DIR/smali_classes2/com/android/systemui/doze/DozeMachine\$State.smali"
+          DOZE_MACHINE_STATE_FILE="$DECOMPILED_DIR/smali/com/android/systemui/doze/DozeMachine\$State.smali"
           if [ -f "$DOZE_MACHINE_STATE_FILE" ]; then
             echo "Modifying DozeMachine\$State.smali..."
             sudo sed -i '/.method screenState/{n;s/    const\/4 v1, 0x3/    const\/4 v1, 0x2/}' "$DOZE_MACHINE_STATE_FILE"
@@ -504,11 +504,11 @@ jobs:
 
       - name: Place Modified OPSystemUI.apk
         run: |
-          MODIFIED_APK="OPSystemUI.apk"
+          MODIFIED_APK="OPSystemUI_unsigned.apk"
           TARGET_APK_DIR="system/system_ext/priv-app/OPSystemUI"
 
           if [ ! -f "$MODIFIED_APK" ]; then
-            echo "Error: Signed OPSystemUI.apk not found."
+            echo "Error: OPSystemUI_unsigned.apk not found."
             exit 1
           fi
 
