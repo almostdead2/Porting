@@ -29,7 +29,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt update
-          sudo apt install -y unace unrar zip unzip p7zip-full liblz4-tool brotli default-jre pv
+          sudo apt install -y unace unrar zip unzip p7zip-full liblz4-tool brotli default-jre
           sudo apt install -y libarchive-tools
           sudo apt install -y android-sdk-libsparse-utils
           sudo apt install -y e2fsprogs
@@ -472,7 +472,7 @@ jobs:
           if [ $? -ne 0 ]; then echo "img2sdat.py failed."; exit 1; fi
 
           echo "Compressing system.new.dat to system.new.dat.br..."
-          time pv test/system.new.dat | brotli -q 11 > test/system.new.dat.br
+          brotli -q 11 test/system.new.dat -o test/system.new.dat.br
           if [ $? -ne 0 ]; then echo "Brotli compression failed."; exit 1; fi
           rm test/system.new.dat
 
