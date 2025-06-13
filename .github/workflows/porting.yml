@@ -436,7 +436,7 @@ jobs:
           if [ ! -d "img2sdat_tools" ]; then echo "Failed to clone img2sdat tools."; exit 1; fi
 
           echo "Converting system.img to system.new.dat and system.transfer.list..."
-          python3 img2sdat_tools/img2sdat.py firmware_images/system.img
+          python3 img2sdat_tools/img2sdat.py firmware_images/system.img -v 4
           if [ $? -ne 0 ]; then echo "img2sdat.py failed."; exit 1; fi
 
           echo "Compressing system.new.dat to system.new.dat.br..."
