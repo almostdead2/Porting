@@ -432,7 +432,7 @@ jobs:
       - name: Clean Up needed for space
         run: |
           echo "Cleaning up for space..."
-          rm -rf system system_ext product odm opproduct firmware_extracted output payload_dumper *.zip *.rar *.7z system_ext.img product.img odm.img opproduct.img vendor.img custom_init
+          sudo rm -rf system system_ext product odm opproduct firmware_extracted output payload_dumper *.zip *.rar *.7z system_ext.img product.img odm.img opproduct.img vendor.img custom_init
           echo "Cleanup complete."
 
       - name: Convert system.img to system.new.dat.br, system.transfer.list
@@ -494,5 +494,5 @@ jobs:
       - name: Clean Up
         run: |
           echo "Cleaning up workspace..."
-          rm -rf system system_ext product odm opproduct firmware_extracted firmware_images img2sdat_tools payload_dumper.py *.zip *.rar *.7z *.img *.dat *.br custom_init
+          sudo rm -rf system system_ext product odm opproduct firmware_extracted firmware_images img2sdat_tools payload_dumper.py *.zip *.rar *.7z *.img *.dat *.br custom_init
           echo "Cleanup complete."
