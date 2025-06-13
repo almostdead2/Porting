@@ -472,7 +472,7 @@ jobs:
           if [ $? -ne 0 ]; then echo "img2sdat.py failed."; exit 1; fi
 
           echo "Compressing system.new.dat to system.new.dat.br..."
-          time pv test/system.new.dat | brotli -q 8 > test/system.new.dat.br
+          time pv test/system.new.dat | brotli -q 11 > test/system.new.dat.br
           if [ $? -ne 0 ]; then echo "Brotli compression failed."; exit 1; fi
           rm test/system.new.dat
 
