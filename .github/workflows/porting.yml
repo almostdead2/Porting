@@ -262,7 +262,7 @@ jobs:
         run: |
           ODT_BUILD_PROP="odm/etc/buildinfo/build.prop"
           OPPRODUCT_BUILD_PROP="opproduct/build.prop"
-          SYSTEM_BUILD_PROP="system/build.prop"
+          SYSTEM_BUILD_PROP="system/system/build.prop"
           SOURCE_BUILD_PROP="" 
 
           if [ -f "$ODT_BUILD_PROP" ]; then
@@ -481,22 +481,24 @@ jobs:
       - name: Zip Final Files for Release
         run: |
           BUILD_DATE=$(date +%Y%m%d)
-          ROM_NAME="OnePlus-Port-ROM-$BUILD_DATE.zip"
-          echo "Zipping final files into $ROM_NAME..."
-          zip -r "$ROM_NAME" system.new.dat.br system.patch.dat system.transfer.list
+          ROM_FILENAME="OnePlus-Port-ROM-$BUILD_DATE.zip"
+          ROM_ZIP_PATH="test/$ROM_FILENAME" 
+          echo "Zipping final files into $ROM_ZIP_PATH..."
+          zip -r "$ROM_ZIP_PATH" test/system.new.dat.br test/system.patch.dat test/system.transfer.list
           if [ $? -ne 0 ]; then echo "Zipping failed."; exit 1; fi
-          echo "ROM_NAME=$ROM_NAME" >> "$GITHUB_ENV"
-          echo "$ROM_NAME created."
+          echo "ROM_ZIP_PATH=$ROM_ZIP_PATH" >> "$GITHUB_ENV"
+          echo "ROM_FILENAME=$ROM_FILENAME" >> "$GITHUB_ENV"
+          echo "$ROM_ZIP_PATH created."
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: ${{ env.ROM_NAME }}
-          name: Release ${{ env.ROM_NAME }}
+          files: ${{ env.ROM_ZIP_PATH }}
+          name: Release ${{ env.ROM_FILENAME }} 
           tag_name: ${{ github.ref_name }}
           body: |
-            OnePlus OEM ROM Port - ${{ env.ROM_NAME }}
+            OnePlus OEM ROM Port - ${{ env.ROM_FILENAME }}
 
             This release contains the ported ROM for your device.
 
@@ -509,13 +511,6 @@ jobs:
             - Empty keylayout files created
 
             Flash at your own risk.
-
-      - name: Upload Artifact (for all runs, regardless of release)
-        uses: actions/upload-artifact@v4
-        with:
-          name: ported-rom-zip
-          path: ${{ env.ROM_NAME }}
-          retention-days: 7
 
       - name: Clean Up
         run: |
