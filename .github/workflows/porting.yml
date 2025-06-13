@@ -258,6 +258,10 @@ jobs:
           sudo chmod 0755 "$INIT_TARGET_PATH"
           echo "Init binary replaced and permissions set."
 
+      - name: Fix permissions for build.prop
+        run: |
+          sudo chmod -R a+rwX system
+
       - name: Modify build.prop
         run: |
           ODT_BUILD_PROP="odm/etc/buildinfo/build.prop"
