@@ -568,7 +568,7 @@ jobs:
           echo "Smali modifications complete."
 
           echo "Recompiling Settings.apk..."
-          sudo apktool b "$DECOMPILED_SETTINGS_DIR" -o "$SETTINGS_APK_PATH"
+          sudo apktool b --force-manifest-overrides "$DECOMPILED_SETTINGS_DIR" -o "$SETTINGS_APK_PATH"
           if [ $? -ne 0 ]; then echo "Apktool recompilation failed for Settings.apk."; exit 1; fi
           echo "Settings.apk recompiled and replaced in its original location."
 
