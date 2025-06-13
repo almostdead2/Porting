@@ -7,10 +7,6 @@ on:
         description: 'Direct URL to the OnePlus Firmware ZIP file'
         required: true
         default: 'https://example.com/your_oneplus_firmware.zip'
-      custom_init_url:
-        description: 'Direct URL to your custom init binary (e.g., from a GDrive or GitHub Raw link)'
-        required: false
-        default: 'https://example.com/your_custom_init_binary'
 
 jobs:
   port_rom:
@@ -234,28 +230,29 @@ jobs:
 
           echo "All partition contents merged into system/."
 
-      - name: Replace init Binary
-        if: github.event.inputs.custom_init_url != 'https://example.com/your_custom_init_binary'
+      - name: Replace init Binary (from repo)
         run: |
-          INIT_TARGET_PATH="system/bin/init"
-          CUSTOM_INIT_URL="${{ github.event.inputs.custom_init_url }}"
+          SOURCE_INIT_PATH="${{ github.workspace }}/my_init_files/init"
 
-          echo "Downloading custom init binary from: $CUSTOM_INIT_URL"
-          wget -q --show-progress "$CUSTOM_INIT_URL" -O custom_init
-          if [ ! -f "custom_init" ]; then
-            echo "Error: Custom init download failed."
-            exit 1
+          INIT_TARGET_PATH="system/bin/init"
+
+          if [ ! -f "$SOURCE_INIT_PATH" ]; then
+            echo "Warning: Custom init binary not found at $SOURCE_INIT_PATH."
+            echo "Skipping init replacement. If you intended to replace init, please place your 'init' file in the 'my_init_files' directory in your repository root."
+            exit 0 
           fi
+
+          echo "Custom init binary found at $SOURCE_INIT_PATH."
 
           if [ -f "$INIT_TARGET_PATH" ]; then
             echo "Deleting old init: $INIT_TARGET_PATH"
-            rm "$INIT_TARGET_PATH"
+            sudo rm "$INIT_TARGET_PATH"
           else
             echo "Old init not found at $INIT_TARGET_PATH, will place new one."
           fi
 
-          echo "Copying new init to $INIT_TARGET_PATH and setting permissions."
-          cp custom_init "$INIT_TARGET_PATH"
+          echo "Copying new init from $SOURCE_INIT_PATH to $INIT_TARGET_PATH and setting permissions."
+          sudo cp "$SOURCE_INIT_PATH" "$INIT_TARGET_PATH"
           sudo chown 1000:1000 "$INIT_TARGET_PATH"
           sudo chmod 0755 "$INIT_TARGET_PATH"
           echo "Init binary replaced and permissions set."
@@ -419,6 +416,167 @@ jobs:
           echo "services.jar recompiled successfully."
 
           sudo rm -rf "$SMALI_DIR"
+
+      - name: Modify OPSystemUI.apk
+        run: |
+          APK_PATH="system/system_ext/priv-app/OPSystemUI/OPSystemUI.apk"
+          DECOMPILED_DIR="OPSystemUI_decompiled"
+          PLUGIN_SOURCE_DIR="${{ github.workspace }}/plugin_files"
+
+          if [ ! -f "$APK_PATH" ]; then
+            echo "Error: OPSystemUI.apk not found at $APK_PATH."
+            exit 1
+          fi
+
+          echo "Decompiling $APK_PATH..."
+          sudo apktool d -f "$APK_PATH" -o "$DECOMPILED_DIR"
+          if [ $? -ne 0 ]; then echo "Apktool decompilation failed for OPSystemUI.apk."; exit 1; fi
+
+          echo "Applying smali modifications..."
+
+          OP_VOLUME_DIALOG_IMPL_FILE="$DECOMPILED_DIR/smali_classes2/com/oneplus/volume/OpVolumeDialogImpl.smali"
+          if [ -f "$OP_VOLUME_DIALOG_IMPL_FILE" ]; then
+            echo "Modifying OpVolumeDialogImpl.smali..."
+            sudo sed -i '/:cond_11/{n;s/    const\/4 p0, 0x0/    const\/4 p0, 0x1/}' "$OP_VOLUME_DIALOG_IMPL_FILE"
+            sudo sed -i 's/const\/16 v4, 0x13/const\/16 v4, 0x15/g' "$OP_VOLUME_DIALOG_IMPL_FILE"
+          else
+            echo "Warning: OpVolumeDialogImpl.smali not found. Skipping modification."
+          fi
+
+          OP_OUTPUT_CHOOSER_DIALOG_FILE="$DECOMPILED_DIR/smali_classes2/com/oneplus/volume/OpOutputChooserDialog.smali"
+          if [ -f "$OP_OUTPUT_CHOOSER_DIALOG_FILE" ]; then
+            echo "Modifying OpOutputChooserDialog.smali..."
+            sudo sed -i '/:cond_11/{n;s/    const\/4 p0, 0x0/    const\/4 p0, 0x1/}' "$OP_OUTPUT_CHOOSER_DIALOG_FILE"
+          else
+            echo "Warning: OpOutputChooserDialog.smali not found. Skipping modification."
+          fi
+
+          VOLUME_DIALOG_IMPL_FILE="$DECOMPILED_DIR/smali_classes2/com/android/systemui/volume/VolumeDialogImpl.smali"
+          if [ -f "$VOLUME_DIALOG_IMPL_FILE" ]; then
+            echo "Modifying VolumeDialogImpl.smali..."
+            sudo sed -i '/:cond_11/{n;s/    const\/4 p0, 0x0/    const\/4 p0, 0x1/}' "$VOLUME_DIALOG_IMPL_FILE"
+          else
+            echo "Warning: VolumeDialogImpl.smali not found. Skipping modification."
+          fi
+
+          DOZE_SENSORS_PICKUP_CHECK_FILE="$DECOMPILED_DIR/smali_classes2/com/android/systemui/doze/DozeSensors\$PickupCheck.smali"
+          if [ -f "$DOZE_SENSORS_PICKUP_CHECK_FILE" ]; then
+            echo "Modifying DozeSensors\$PickupCheck.smali..."
+            sudo sed -i 's/0x1fa2652/0x1fa265c/g' "$DOZE_SENSORS_PICKUP_CHECK_FILE"
+          else
+            echo "Warning: DozeSensors\$PickupCheck.smali not found. Skipping modification."
+          fi
+
+          DOZE_MACHINE_STATE_FILE="$DECOMPILED_DIR/smali_classes2/com/android/systemui/doze/DozeMachine\$State.smali"
+          if [ -f "$DOZE_MACHINE_STATE_FILE" ]; then
+            echo "Modifying DozeMachine\$State.smali..."
+            sudo sed -i '/.method screenState/{n;s/    const\/4 v1, 0x3/    const\/4 v1, 0x2/}' "$DOZE_MACHINE_STATE_FILE"
+          else
+            echo "Warning: DozeMachine\$State.smali not found. Skipping modification."
+          fi
+
+          echo "Smali modifications complete."
+
+          PLUGIN_DEST_DIR="$DECOMPILED_DIR/smali_classes2/com/oneplus/plugin"
+          echo "Replacing plugin files in $PLUGIN_DEST_DIR..."
+
+          if [ ! -d "$PLUGIN_SOURCE_DIR" ]; then
+            echo "Error: Source plugin directory '$PLUGIN_SOURCE_DIR' not found. Cannot replace plugin files."
+            exit 1
+          fi
+
+          if [ -d "$PLUGIN_DEST_DIR" ]; then
+            sudo rm -rf "$PLUGIN_DEST_DIR"/*
+          else
+            sudo mkdir -p "$PLUGIN_DEST_DIR"
+          fi
+
+          sudo cp -r "$PLUGIN_SOURCE_DIR"/* "$PLUGIN_DEST_DIR/"
+          if [ $? -ne 0 ]; then echo "Error: Failed to copy new plugin files."; exit 1; fi
+          echo "Plugin files replaced."
+
+          echo "Recompiling OPSystemUI.apk..."
+          sudo apktool b "$DECOMPILED_DIR" -o "OPSystemUI_unsigned.apk"
+          if [ $? -ne 0 ]; then echo "Apktool recompilation failed for OPSystemUI.apk."; exit 1; fi
+
+          echo "Recompiled OPSystemUI_unsigned.apk created."
+          sudo rm -rf "$DECOMPILED_DIR"
+
+      - name: Place Modified OPSystemUI.apk
+        run: |
+          MODIFIED_APK="OPSystemUI.apk"
+          TARGET_APK_DIR="system/system_ext/priv-app/OPSystemUI"
+
+          if [ ! -f "$MODIFIED_APK" ]; then
+            echo "Error: Signed OPSystemUI.apk not found."
+            exit 1
+          fi
+
+          echo "Placing modified $MODIFIED_APK into $TARGET_APK_DIR/..."
+          sudo rm -f "$TARGET_APK_DIR/OPSystemUI.apk"
+          sudo mv "$MODIFIED_APK" "$TARGET_APK_DIR/OPSystemUI.apk"
+          sudo chown 0:0 "$TARGET_APK_DIR/OPSystemUI.apk"
+          sudo chmod 0644 "$TARGET_APK_DIR/OPSystemUI.apk"
+          echo "Modified OPSystemUI.apk placed and permissions set."
+
+      - name: Modify Settings.apk
+        run: |
+          SETTINGS_APK_DIR="system/system_ext/priv-app/Settings"
+          SETTINGS_APK_PATH="$SETTINGS_APK_DIR/Settings.apk"
+          DECOMPILED_SETTINGS_DIR="Settings_decompiled"
+
+          if [ ! -f "$SETTINGS_APK_PATH" ]; then
+            echo "Error: Settings.apk not found at $SETTINGS_APK_PATH."
+            exit 1
+          fi
+
+          echo "Decompiling $SETTINGS_APK_PATH..."
+          sudo apktool d -f "$SETTINGS_APK_PATH" -o "$DECOMPILED_SETTINGS_DIR"
+          if [ $? -ne 0 ]; then echo "Apktool decompilation failed for Settings.apk."; exit 1; fi
+
+          echo "Applying smali modifications to OPUtils.smali..."
+
+          OP_UTILS_FILE="$DECOMPILED_SETTINGS_DIR/smali_classes2/com/oneplus/settings/utils/OPUtils.smali"
+          if [ -f "$OP_UTILS_FILE" ]; then
+            echo "Modifying $OP_UTILS_FILE..."
+
+            sudo sed -i -z 's/\(OP_FEATURE_SUPPORT_CUSTOM_FINGERPRINT\)/\1/g' "$OP_UTILS_FILE"
+
+            sudo sed -i -z '
+              /\.method.*OP_FEATURE_SUPPORT_CUSTOM_FINGERPRINT/ {
+                :a
+                n
+                /    move-result v0\n\n    return v0/ {
+                  s/\(    move-result v0\n\n\)    return v0/\1    const\/4 v0, 0x1\n\n    return v0/
+                  b end_sed_block
+                }
+                ba
+              }
+              :end_sed_block
+            ' "$OP_UTILS_FILE"
+
+            if [ $? -ne 0 ]; then
+              echo "Error: Smali modification for OP_FEATURE_SUPPORT_CUSTOM_FINGERPRINT failed."
+              exit 1
+            fi
+            echo "Smali modification for OP_FEATURE_SUPPORT_CUSTOM_FINGERPRINT applied."
+
+          else
+            echo "Warning: OPUtils.smali not found at $OP_UTILS_FILE. Skipping modification."
+          fi
+
+          echo "Smali modifications complete."
+
+          echo "Recompiling Settings.apk..."
+          sudo apktool b "$DECOMPILED_SETTINGS_DIR" -o "$SETTINGS_APK_PATH"
+          if [ $? -ne 0 ]; then echo "Apktool recompilation failed for Settings.apk."; exit 1; fi
+          echo "Settings.apk recompiled and replaced in its original location."
+
+          sudo rm -rf "$DECOMPILED_SETTINGS_DIR"
+
+          sudo chown 0:0 "$SETTINGS_APK_PATH"
+          sudo chmod 0644 "$SETTINGS_APK_PATH"
+          echo "Permissions for $SETTINGS_APK_PATH set."
 
       - name: Ensure system folder is readable
         run: |
