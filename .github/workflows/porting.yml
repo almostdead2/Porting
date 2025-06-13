@@ -11,11 +11,17 @@ on:
         description: 'Direct URL to your custom init binary (e.g., from a GDrive or GitHub Raw link)'
         required: false
         default: 'https://example.com/your_custom_init_binary'
+  push:
+    tags:
+      - 'v*'
+      - '*'
 
 jobs:
   port_rom:
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout Repository
@@ -54,8 +60,9 @@ jobs:
           if [ ! -f "$FIRMWARE_FILENAME" ]; then
             echo "Error: Firmware download failed."
             exit 1
+          FIRMWARE_CHECKSUM=$(sha256sum "$FIRMWARE_FILENAME" | awk '{print $1}')
           fi
-          echo "Downloaded firmware: $FIRMWARE_FILENAME"
+          echo "Downloaded firmware: $FIRMWARE_FILENAME (SHA256: $FIRMWARE_CHECKSUM)"
           echo "firmware_filename=$FIRMWARE_FILENAME" >> "$GITHUB_OUTPUT"
 
       - name: Extract Firmware
@@ -131,9 +138,9 @@ jobs:
           mkdir -p "$TARGET_DIR"
 
           for img in "${REQUIRED_IMAGES[@]}"; do
-            if [ -f "/home/runner/work/Porting/Porting/output/$img" ]; then
+            if [ -f "output/$img" ]; then
               echo "Found $img"
-              mv "/home/runner/work/Porting/Porting/output/$img" "$TARGET_DIR/"
+              mv "output/$img" "$TARGET_DIR/"
             else
               echo "Warning: Required image $img not found."
               ALL_IMAGES_FOUND=false
@@ -141,9 +148,9 @@ jobs:
           done
 
           for img in "${OPTIONAL_IMAGES[@]}"; do
-            if [ -f "/home/runner/work/Porting/Porting/output/$img" ]; then
+            if [ -f "output/$img" ]; then
               echo "Found optional image $img"
-              mv "/home/runner/work/Porting/Porting/output/$img" "$TARGET_DIR/"
+              mv "output/$img" "$TARGET_DIR/"
             else
               echo "Optional image $img not found."
             fi
@@ -182,7 +189,7 @@ jobs:
             sudo mount -t ext4 -o ro "$LOOP_DEV" "$mount_point"
             if [ $? -ne 0 ]; then
               echo "Error: Failed to mount $img_file. Trying to detach loop device."
-              sudo losetup -d "$LOOP_DEV"
+              sudo losetup -d "$LOOP_DEV" || true
               return 1
             fi
             echo "Mounted $img_file to $mount_point/."
@@ -190,30 +197,32 @@ jobs:
             mkdir -p "$target_dir"
             
             echo "Copying contents from $mount_point/ to $target_dir/..."
-            sudo cp -a "$mount_point/." "$target_dir/"
+            sudo rsync -a "$mount_point/" "$target_dir/"
             if [ $? -ne 0 ]; then
               echo "Error: Failed to copy contents from $img_file."
-              sudo umount "$mount_point"
-              sudo losetup -d "$LOOP_DEV"
+              sudo umount "$mount_point" || true
+              sudo losetup -d "$LOOP_DEV" || true
               return 1
             fi
 
-            sudo umount "$mount_point"
+            sudo umount "$mount_point" || true
             echo "Unmounted $mount_point."
-            sudo losetup -d "$LOOP_DEV"
+            sudo losetup -d "$LOOP_DEV" || true
             echo "Detached loop device $LOOP_DEV."
-            rmdir "$mount_point"
+            rmdir "$mount_point" || true
             echo "Successfully extracted $img_file."
             return 0
           }
 
-          extract_image_via_mount "system.img" "system" || exit 1
-          extract_image_via_mount "system_ext.img" "system_ext" || exit 1
-          extract_image_via_mount "product.img" "product" || exit 1
-          extract_image_via_mount "odm.img" "odm" || exit 1
+          sudo chown -R runner:runner .
+
+          extract_image_via_mount "system.img" "system" || { echo "Failed to extract system.img"; exit 1; }
+          extract_image_via_mount "system_ext.img" "system_ext" || { echo "Failed to extract system_ext.img"; exit 1; }
+          extract_image_via_mount "product.img" "product" || { echo "Failed to extract product.img"; exit 1; }
+          extract_image_via_mount "odm.img" "odm" || { echo "Failed to extract odm.img"; exit 1; }
 
           if [ -f "firmware_images/opproduct.img" ]; then
-            extract_image_via_mount "opproduct.img" "opproduct" || exit 1
+            extract_image_via_mount "opproduct.img" "opproduct" || { echo "Failed to extract opproduct.img"; exit 1; }
           else
             echo "opproduct.img not found. Skipping extraction."
           fi
@@ -222,12 +231,12 @@ jobs:
         run: |
           echo "Copying system_ext/ contents to system/system_ext..."
           mkdir -p system/system_ext
-          sudo cp -r system_ext/* system/system_ext/
+          cp -r system_ext/* system/system_ext/
           if [ $? -ne 0 ]; then echo "Copy system_ext failed"; exit 1; fi
 
           echo "Copying product/ contents to system/product..."
           mkdir -p system/product
-          sudo cp -r product/* system/product/
+          cp -r product/* system/product/
           if [ $? -ne 0 ]; then echo "Copy product failed"; exit 1; fi
 
           echo "All partition contents merged into system/."
@@ -254,13 +263,9 @@ jobs:
 
           echo "Copying new init to $INIT_TARGET_PATH and setting permissions."
           cp custom_init "$INIT_TARGET_PATH"
-          sudo chown 1000:1000 "$INIT_TARGET_PATH"
-          sudo chmod 0755 "$INIT_TARGET_PATH"
+          chown 1000:1000 "$INIT_TARGET_PATH"
+          chmod 0755 "$INIT_TARGET_PATH"
           echo "Init binary replaced and permissions set."
-
-      - name: Fix permissions for build.prop
-        run: |
-          sudo chmod -R a+rwX system
 
       - name: Modify build.prop
         run: |
@@ -269,10 +274,16 @@ jobs:
           SYSTEM_BUILD_PROP="system/system/build.prop"
           SOURCE_BUILD_PROP=""
 
+          if [ -f "$SYSTEM_BUILD_PROP" ]; then
+              chmod u+w "$SYSTEM_BUILD_PROP" || true
+          fi
+
           if [ -f "$ODT_BUILD_PROP" ]; then
+            chmod u+w "$ODT_BUILD_PROP" || true
             SOURCE_BUILD_PROP="$ODT_BUILD_PROP"
             echo "Found source build.prop at $ODT_BUILD_PROP. Using it for modification."
           elif [ -f "$OPPRODUCT_BUILD_PROP" ]; then
+            chmod u+w "$OPPRODUCT_BUILD_PROP" || true
             SOURCE_BUILD_PROP="$OPPRODUCT_BUILD_PROP"
             echo "Warning: $ODT_BUILD_PROP not found. Using $OPPRODUCT_BUILD_PROP as source build.prop instead."
           else
@@ -296,18 +307,25 @@ jobs:
 
           echo "Appending lines to $SYSTEM_BUILD_PROP..."
           awk '/# end build properties/ && !x {print; system("cat tmp_lines.txt"); x=1; next} 1' "$SYSTEM_BUILD_PROP" > tmp_build.prop && mv tmp_build.prop "$SYSTEM_BUILD_PROP"
-          rm -f tmp_lines.txt
 
+          if [ $? -ne 0 ]; then
+            echo "Error: `awk` command failed to modify build.prop. This might be due to a remaining permission issue or malformed input."
+            rm -f tmp_lines.txt
+            rm -f tmp_build.prop || true
+            exit 1
+          fi
+
+          rm -f tmp_lines.txt
           echo "build.prop modified successfully."
 
       - name: Create empty keylayout files
         run: |
           KEYLAYOUT_DIR="system/usr/keylayout"
-          sudo mkdir -p "$KEYLAYOUT_DIR"
+          mkdir -p "$KEYLAYOUT_DIR"
 
           echo "Creating empty uinput-fpc.kl and uinput-goodix.kl..."
-          sudo touch "$KEYLAYOUT_DIR/uinput-fpc.kl"
-          sudo touch "$KEYLAYOUT_DIR/uinput-goodix.kl"
+          touch "$KEYLAYOUT_DIR/uinput-fpc.kl"
+          touch "$KEYLAYOUT_DIR/uinput-goodix.kl"
           echo "Keylayout files created."
 
       - name: Remove Unwanted Apps
@@ -350,7 +368,7 @@ jobs:
               TARGET_DIR="$app_path_base/$app_name"
               if [ -d "$TARGET_DIR" ]; then
                 echo "Removing $TARGET_DIR..."
-                sudo rm -rf "$TARGET_DIR"
+                rm -rf "$TARGET_DIR"
                 APP_FOUND=true
                 break
               fi
@@ -374,7 +392,7 @@ jobs:
           fi
 
           echo "Decompiling services.jar..."
-          sudo apktool d -f -r "$SERVICES_JAR_PATH" -o "$SMALI_DIR"
+          apktool d -f -r "$SERVICES_JAR_PATH" -o "$SMALI_DIR"
           if [ $? -ne 0 ]; then echo "Apktool decompilation failed."; exit 1; fi
 
           if [ ! -f "$SMALI_FILE" ]; then
@@ -384,44 +402,39 @@ jobs:
 
           echo "Applying smali modifications to $SMALI_FILE..."
 
-          sudo sed -i '/invoke-static {}, Landroid\/os\/Build;->isBuildConsistent()Z/{
+          sed -i '/invoke-static {}, Landroid\/os\/Build;->isBuildConsistent()Z/{
             n
             s/    move-result v1/    move-result v1\n\n    const\/4 v1, 0x1\n/
           }' "$SMALI_FILE"
           if [ $? -ne 0 ]; then echo "First sed replacement failed."; exit 1; fi
           echo "First modification (const/4 v1, 0x1) applied."
 
-          sudo sed -i 's/if-nez v1, :cond_42/if-nez v1, :cond_43/g' "$SMALI_FILE"
+          sed -i 's/if-nez v1, :cond_42/if-nez v1, :cond_43/g' "$SMALI_FILE"
           if [ $? -ne 0 ]; then echo "Second sed replacement failed."; exit 1; fi
           echo "Second modification (cond_42 to cond_43) applied."
 
-          sudo sed -i 's/:cond_42/:cond_43/g' "$SMALI_FILE"
+          sed -i 's/:cond_42/:cond_43/g' "$SMALI_FILE"
           if [ $? -ne 0 ]; then echo "Third sed replacement failed."; exit 1; fi
           echo "Third modification (:cond_42 to :cond_43 label) applied."
 
-          sudo sed -i 's/\(:try_end_43\)\n    .catchall {:try_start_29 .. :try_end_43} :catchall_26/\:try_end_44\n    .catchall {:try_start_29 .. :try_end_44} :catchall_26/g' "$SMALI_FILE"
+          sed -i 's/\(:try_end_43\)\n    .catchall {:try_start_29 .. :try_end_43} :catchall_26/\:try_end_44\n    .catchall {:try_start_29 .. :try_end_44} :catchall_26/g' "$SMALI_FILE"
           if [ $? -ne 0 ]; then echo "Fourth sed replacement (try_end_43) failed."; exit 1; fi
           echo "Fourth modification (:try_end_43 to :try_end_44) applied."
 
-          sudo sed -i 's/:goto_47/:goto_48/g' "$SMALI_FILE"
+          sed -i 's/:goto_47/:goto_48/g' "$SMALI_FILE"
           if [ $? -ne 0 ]; then echo "Fifth sed replacement (goto_47) failed."; exit 1; fi
           echo "Fifth modification (:goto_47 to :goto_48) applied."
 
-          sudo sed -i 's/\(:try_start_47\)\n    monitor-exit v0\n    :try_end_48/\:try_start_48\n    monitor-exit v0\n    :try_end_49/g' "$SMALI_FILE"
+          sed -i 's/\(:try_start_47\)\n    monitor-exit v0\n    :try_end_48/\:try_start_48\n    monitor-exit v0\n    :try_end_49/g' "$SMALI_FILE"
           if [ $? -ne 0 ]; then echo "Sixth sed replacement (try_start/end_4x) failed."; exit 1; fi
           echo "Sixth modification (:try_start/end_4x) applied."
 
           echo "Recompiling services.jar..."
-          sudo apktool b "$SMALI_DIR" -o "$SERVICES_JAR_PATH"
+          apktool b "$SMALI_DIR" -o "$SERVICES_JAR_PATH"
           if [ $? -ne 0 ]; then echo "Apktool recompilation failed."; exit 1; fi
           echo "services.jar recompiled successfully."
 
-          sudo rm -rf "$SMALI_DIR"
-
-      - name: Ensure system folder is readable
-        run: |
-          sudo chmod -R a+r system
-          sudo chmod -R a+X system
+          rm -rf "$SMALI_DIR"
 
       - name: Prepare make_ext4fs from repository
         run: |
@@ -432,7 +445,7 @@ jobs:
       - name: Convert system folder to system.img with specific size
         run: |
           TARGET_SYSTEM_IMG_SIZE_BYTES=4221225472
-          SYSTEM_FOLDER_SIZE=$(sudo du -bs system | awk '{print $1}')
+          SYSTEM_FOLDER_SIZE=$(du -bs system | awk '{print $1}')
           echo "Current system folder size: $SYSTEM_FOLDER_SIZE bytes"
 
           echo "Creating system.img from system/ folder with a max partition size of 3.22GB..."
@@ -465,22 +478,22 @@ jobs:
       - name: Clean Up needed for space
         run: |
           echo "Cleaning up for space..."
-          sudo rm -rf system system_ext product odm opproduct firmware_extracted output payload_dumper *.zip *.rar *.7z system_ext.img product.img odm.img opproduct.img vendor.img custom_init
+          rm -rf system system_ext product odm opproduct firmware_extracted output payload_dumper *.zip *.rar *.7z system_ext.img product.img odm.img opproduct.img vendor.img custom_init
           echo "Cleanup complete."
 
       - name: Convert system.img to system.new.dat.br, system.transfer.list
         run: |
           echo "Cloning img2sdat tools..."
           git clone https://github.com/IsHacker003/img2sdat.git --depth=1 img2sdat_tools
-          if [ ! -d "img2sdat_tools" ]; then echo "Failed to clone img2sdat tools."; exit 1; fi
+          if [ ! -d "img2sdat_tools" ]; then echo "Failed to clone img2sdat tools."; exit 1; }
 
           echo "Converting system.img to system.new.dat, system.patch.dat and system.transfer.list..."
           python3 img2sdat_tools/img2sdat.py firmware_images/system.img -o test -v 4
-          if [ $? -ne 0 ]; then echo "img2sdat.py failed."; exit 1; fi
+          if [ $? -ne 0 ]; then echo "img2sdat.py failed."; exit 1; }
 
           echo "Compressing system.new.dat to system.new.dat.br..."
           brotli -q 11 test/system.new.dat -o test/system.new.dat.br
-          if [ $? -ne 0 ]; then echo "Brotli compression failed."; exit 1; fi
+          if [ $? -ne 0 ]; then echo "Brotli compression failed."; exit 1; }
           rm test/system.new.dat
 
           echo "Generated system.new.dat.br and system.transfer.list."
@@ -502,8 +515,8 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: ${{ env.ROM_ZIP_PATH }}
-          name: Release ${{ env.ROM_FILENAME }} 
           tag_name: ${{ github.ref_name }}
+          name: Release ${{ env.ROM_FILENAME }} 
           body: |
             OnePlus OEM ROM Port - ${{ env.ROM_FILENAME }}
 
@@ -522,5 +535,5 @@ jobs:
       - name: Clean Up
         run: |
           echo "Cleaning up workspace..."
-          sudo rm -rf system system_ext product odm opproduct test firmware_extracted firmware_images img2sdat_tools payload_dumper.py *.zip *.rar *.7z *.img *.dat *.br custom_init
+          rm -rf system system_ext product odm opproduct test firmware_extracted firmware_images img2sdat_tools payload_dumper.py *.zip *.rar *.7z *.img *.dat *.br custom_init output
           echo "Cleanup complete."
