@@ -475,7 +475,7 @@ jobs:
             echo "Warning: DozeMachine\$State.smali not found. Skipping modification."
           fi
 
-        echo "Applying Smali file replacement for OpCustomizeSettingsG2.smali..."
+            echo "Applying Smali file replacement for OpCustomizeSettingsG2.smali..."
 
           TARGET_SMALI_DIR="$DECOMPILED_DIR/smali_classes2/com/oneplus/custom/utils"
           ORIGINAL_SMALI_FILE="$TARGET_SMALI_DIR/OpCustomizeSettingsG2.smali"
