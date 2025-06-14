@@ -851,7 +851,7 @@ jobs:
           PERMISSIONS_OUTPUT_FILE="file_permissions.txt"
 
           echo "Generating SELinux contexts to $SELINUX_OUTPUT_FILE..."
-          sudo find system/ -print0 | sudo xargs -0 -I{} stat -c "%n %Z" "{}" > "$SELINUX_OUTPUT_FILE"
+          sudo find system/ -exec ls -dZ {} + | awk '{print $1, $NF}' > "$SELINUX_OUTPUT_FILE"
           echo "SELinux contexts saved."
 
           echo "Generating standard permissions, UID, and GID to $PERMISSIONS_OUTPUT_FILE..."
