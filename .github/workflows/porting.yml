@@ -590,6 +590,37 @@ jobs:
           sudo apktool d -f "$SETTINGS_APK_PATH" -o "$DECOMPILED_SETTINGS_DIR"
           if [ $? -ne 0 ]; then echo "Apktool decompilation failed for Settings.apk."; exit 1; fi
 
+          echo "Applying smali modifications to OPUtils.smali..."
+
+          OP_UTILS_FILE="$DECOMPILED_SETTINGS_DIR/smali_classes2/com/oneplus/settings/utils/OPUtils.smali"
+          if [ -f "$OP_UTILS_FILE" ]; then
+            echo "Modifying $OP_UTILS_FILE..."
+
+            sudo sed -i -z 's/\(OP_FEATURE_SUPPORT_CUSTOM_FINGERPRINT\)/\1/g' "$OP_UTILS_FILE"
+
+            sudo sed -i -z '
+              /\.method.*OP_FEATURE_SUPPORT_CUSTOM_FINGERPRINT/ {
+                :a
+                n
+                /    move-result v0\n\n    return v0/ {
+                  s/\(    move-result v0\n\n\)    return v0/\1    const\/4 v0, 0x1\n\n    return v0/
+                  b end_sed_block
+                }
+                ba
+              }
+              :end_sed_block
+            ' "$OP_UTILS_FILE"
+
+            if [ $? -ne 0 ]; then
+              echo "Error: Smali modification for OP_FEATURE_SUPPORT_CUSTOM_FINGERPRINT failed."
+              exit 1
+            fi
+            echo "Smali modification for OP_FEATURE_SUPPORT_CUSTOM_FINGERPRINT applied."
+
+          else
+            echo "Warning: OPUtils.smali not found at $OP_UTILS_FILE. Skipping modification."
+          fi
+
           echo "Applying Smali file replacement for OpCustomizeSettingsG2.smali..."
 
           TARGET_SMALI_DIR="$DECOMPILED_SETTINGS_DIR/smali_classes2/com/oneplus/custom/utils"
@@ -622,6 +653,8 @@ jobs:
           echo "OpCustomizeSettingsG2.smali replaced successfully."
           
           echo "Smali file replacement complete."
+
+          echo "Smali modifications complete."
 
           echo "Recompiling Settings.apk..."
           sudo apktool b "$DECOMPILED_SETTINGS_DIR" -o "$SETTINGS_APK_PATH"
