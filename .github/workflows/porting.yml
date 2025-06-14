@@ -35,7 +35,7 @@ jobs:
           pip install protobuf
 
           wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O apktool
-          wget https://github.com/iBotPeaches/Apktool/releases/download/v2.4.0/apktool_2.4.0.jar -O apktool.jar
+          wget https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar -O apktool.jar
           chmod +x apktool apktool.jar
           sudo mv apktool /usr/local/bin/
           sudo mv apktool.jar /usr/local/bin/
@@ -475,6 +475,39 @@ jobs:
             echo "Warning: DozeMachine\$State.smali not found. Skipping modification."
           fi
 
+        echo "Applying Smali file replacement for OpCustomizeSettingsG2.smali..."
+
+          TARGET_SMALI_DIR="$DECOMPILED_DIR/smali_classes2/com/oneplus/custom/utils"
+          ORIGINAL_SMALI_FILE="$TARGET_SMALI_DIR/OpCustomizeSettingsG2.smali"
+          NEW_SMALI_FILE="${{ github.workspace }}/my_G2/for_SystemUI/OpCustomizeSettingsG2.smali" 
+
+          if [ ! -d "$TARGET_SMALI_DIR" ]; then
+            echo "Error: Target Smali directory not found: $TARGET_SMALI_DIR"
+            echo "Please verify the 'smali_classesX' folder (e.g., smali_classes2) or the path 'com/oneplus/custom/utils' within OPSystemUI.apk's decompiled structure."
+            exit 1
+          fi
+
+          if [ -f "$ORIGINAL_SMALI_FILE" ]; then
+            echo "Deleting original OpCustomizeSettingsG2.smali: $ORIGINAL_SMALI_FILE"
+            sudo rm "$ORIGINAL_SMALI_FILE"
+            if [ $? -ne 0 ]; then echo "Failed to delete original OpCustomizeSettingsG2.smali."; exit 1; fi
+          else
+            echo "Original OpCustomizeSettingsG2.smali not found at $ORIGINAL_SMALI_FILE (might be already deleted or path is wrong, proceeding)."
+          fi
+
+          if [ ! -f "$NEW_SMALI_FILE" ]; then
+            echo "Error: New OpCustomizeSettingsG2.smali not found at source: $NEW_SMALI_FILE"
+            echo "Please ensure '$NEW_SMALI_FILE' is in your repository and accessible."
+            exit 1
+          fi
+
+          echo "Copying new OpCustomizeSettingsG2.smali from $NEW_SMALI_FILE to $TARGET_SMALI_DIR"
+          sudo cp "$NEW_SMALI_FILE" "$TARGET_SMALI_DIR/"
+          if [ $? -ne 0 ]; then echo "Failed to copy new OpCustomizeSettingsG2.smali."; exit 1; fi
+          echo "OpCustomizeSettingsG2.smali replaced successfully."
+          
+          echo "Smali file replacement complete."
+
           echo "Smali modifications complete."
 
           PLUGIN_DEST_DIR="$DECOMPILED_DIR/smali_classes2/com/oneplus/plugin"
@@ -534,38 +567,38 @@ jobs:
           sudo apktool d -f "$SETTINGS_APK_PATH" -o "$DECOMPILED_SETTINGS_DIR"
           if [ $? -ne 0 ]; then echo "Apktool decompilation failed for Settings.apk."; exit 1; fi
 
-          echo "Applying smali modifications to OPUtils.smali..."
+          echo "Applying Smali file replacement for OpCustomizeSettingsG2.smali..."
 
-          OP_UTILS_FILE="$DECOMPILED_SETTINGS_DIR/smali_classes2/com/oneplus/settings/utils/OPUtils.smali"
-          if [ -f "$OP_UTILS_FILE" ]; then
-            echo "Modifying $OP_UTILS_FILE..."
+          TARGET_SMALI_DIR="$DECOMPILED_SETTINGS_DIR/smali_classes2/com/oneplus/custom/utils"
+          ORIGINAL_SMALI_FILE="$TARGET_SMALI_DIR/OpCustomizeSettingsG2.smali"
+          NEW_SMALI_FILE="my_G2/for_Settings/OpCustomizeSettingsG2.smali"
 
-            sudo sed -i -z 's/\(OP_FEATURE_SUPPORT_CUSTOM_FINGERPRINT\)/\1/g' "$OP_UTILS_FILE"
-
-            sudo sed -i -z '
-              /\.method.*OP_FEATURE_SUPPORT_CUSTOM_FINGERPRINT/ {
-                :a
-                n
-                /    move-result v0\n\n    return v0/ {
-                  s/\(    move-result v0\n\n\)    return v0/\1    const\/4 v0, 0x1\n\n    return v0/
-                  b end_sed_block
-                }
-                ba
-              }
-              :end_sed_block
-            ' "$OP_UTILS_FILE"
-
-            if [ $? -ne 0 ]; then
-              echo "Error: Smali modification for OP_FEATURE_SUPPORT_CUSTOM_FINGERPRINT failed."
-              exit 1
-            fi
-            echo "Smali modification for OP_FEATURE_SUPPORT_CUSTOM_FINGERPRINT applied."
-
-          else
-            echo "Warning: OPUtils.smali not found at $OP_UTILS_FILE. Skipping modification."
+          if [ ! -d "$TARGET_SMALI_DIR" ]; then
+            echo "Error: Target Smali directory not found for Settings.apk: $TARGET_SMALI_DIR"
+            echo "Please verify the 'smali_classesX' folder (e.g., smali_classes2) or the path 'com/oneplus/custom/utils' within Settings.apk's decompiled structure."
+            exit 1
           fi
 
-          echo "Smali modifications complete."
+          if [ -f "$ORIGINAL_SMALI_FILE" ]; then
+            echo "Deleting original OpCustomizeSettingsG2.smali: $ORIGINAL_SMALI_FILE"
+            sudo rm "$ORIGINAL_SMALI_FILE"
+            if [ $? -ne 0 ]; then echo "Failed to delete original OpCustomizeSettingsG2.smali."; exit 1; fi
+          else
+            echo "Original OpCustomizeSettingsG2.smali not found at $ORIGINAL_SMALI_FILE (might be already deleted or path is wrong, proceeding)."
+          fi
+
+          if [ ! -f "$NEW_SMALI_FILE" ]; then
+            echo "Error: New OpCustomizeSettingsG2.smali not found at source: $NEW_SMALI_FILE"
+            echo "Please ensure 'my_G2/OpCustomizeSettingsG2.smali' is in your repository and accessible."
+            exit 1
+          fi
+
+          echo "Copying new OpCustomizeSettingsG2.smali from $NEW_SMALI_FILE to $TARGET_SMALI_DIR"
+          sudo cp "$NEW_SMALI_FILE" "$TARGET_SMALI_DIR/"
+          if [ $? -ne 0 ]; then echo "Failed to copy new OpCustomizeSettingsG2.smali."; exit 1; fi
+          echo "OpCustomizeSettingsG2.smali replaced successfully."
+          
+          echo "Smali file replacement complete."
 
           echo "Recompiling Settings.apk..."
           sudo apktool b "$DECOMPILED_SETTINGS_DIR" -o "$SETTINGS_APK_PATH"
