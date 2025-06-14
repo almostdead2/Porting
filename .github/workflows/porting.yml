@@ -715,6 +715,46 @@ jobs:
           echo "$(pwd)" >> "$GITHUB_PATH"
           echo "make_ext4fs from repository root is ready."
 
+      - name: Debug ROM Path
+        run: |
+          echo "--- Starting Path Debugging ---"
+          
+          echo "1. Value of github.workspace:"
+          echo "${{ github.workspace }}"
+          echo ""
+
+          echo "2. Listing contents of ${{ github.workspace }}:"
+          ls -F "${{ github.workspace }}" || echo "  (Directory not found or empty)"
+          echo ""
+
+          echo "3. Listing contents of ${{ github.workspace }}/Porting:"
+          ls -F "${{ github.workspace }}/Porting" || echo "  (Directory not found or empty)"
+          echo ""
+
+          echo "4. Listing contents of ${{ github.workspace }}/Porting/Porting:"
+          ls -F "${{ github.workspace }}/Porting/Porting" || echo "  (Directory not found or empty)"
+          echo ""
+
+          ROM_ROOT="${{ github.workspace }}/Porting/Porting" 
+          echo "5. Your currently configured ROM_ROOT variable is:"
+          echo "$ROM_ROOT"
+          echo ""
+
+          echo "6. Listing contents of the 'system' directory AS DEFINED BY YOUR CURRENT ROM_ROOT ($ROM_ROOT/system):"
+          ls -F "$ROM_ROOT/system" || echo "  (Error: '$ROM_ROOT/system' not found or empty. This indicates ROM_ROOT is likely incorrect.)"
+          echo ""
+
+          echo "7. Listing contents of the 'system/system/reserve' directory AS DEFINED BY YOUR CURRENT ROM_ROOT ($ROM_ROOT/system/system/reserve):"
+          ls -F "$ROM_ROOT/system/system/reserve" || echo "  (Error: '$ROM_ROOT/system/system/reserve' not found or empty. This is your target directory from the warning.)"
+          echo ""
+
+          echo "--- Path Debugging Complete ---"
+
+          echo "Analyze the output above. You should see your ROM's 'system' directory listed correctly."
+          echo "If 'system' appears under '${{ github.workspace }}/Porting', then ROM_ROOT should be '${{ github.workspace }}/Porting'."
+          echo "If 'system' appears directly under '${{ github.workspace }}', then ROM_ROOT should be '${{ github.workspace }}'."
+          echo "Adjust your 'ROM_ROOT' in the main script based on this debug output."
+
       - name: Prepare Reserve Partition and Create Image
         run: |
           ROM_ROOT="${{ github.workspace }}/Porting/Porting" 
