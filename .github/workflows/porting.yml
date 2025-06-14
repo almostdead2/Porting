@@ -542,7 +542,7 @@ jobs:
             sudo sed -n '1420,1430p' "$MANIFEST_FILE"
             echo "---------------------------------------------------------------------"
 
-            sudo sed -i -E 's/android:pointerIconHelp[[:space:]]*=[[:space:]]*("true"|'\''true'\'')/android:pointerIconHelp="@null"/g' "$MANIFEST_FILE"
+            sudo sed -i -E 's/androidprv:pointerIconHelp[[:space:]]*=[[:space:]]*("true"|'\''true'\'')/android:pointerIconHelp="@null"/g' "$MANIFEST_FILE"
 
             if [ $? -ne 0 ]; then
                 echo "Error: sed command failed to execute correctly for AndroidManifest.xml."
