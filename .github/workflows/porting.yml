@@ -188,7 +188,7 @@ jobs:
             mkdir -p "$target_dir"
             
             echo "Copying contents from $mount_point/ to $target_dir/..."
-            sudo cp -a "$mount_point/." "$target_dir/"
+            sudo rsync -a "$mount_point/." "$target_dir/"
             if [ $? -ne 0 ]; then
               echo "Error: Failed to copy contents from $img_file."
               sudo umount "$mount_point"
@@ -243,12 +243,12 @@ jobs:
         run: |
           echo "Copying system_ext/ contents to system/system_ext..."
           mkdir -p system/system_ext
-          sudo cp -a system_ext/* system/system_ext/
+          sudo rsync -a system_ext/ system/system_ext/
           if [ $? -ne 0 ]; then echo "Copy system_ext failed"; exit 1; fi
 
           echo "Copying product/ contents to system/product..."
           mkdir -p system/product
-          sudo cp -a product/* system/product/
+          sudo rsync -a product/ system/product/
           if [ $? -ne 0 ]; then echo "Copy product failed"; exit 1; fi
 
           echo "All partition contents merged into system/."
