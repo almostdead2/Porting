@@ -42,6 +42,29 @@ jobs:
 
           echo "Apktool installed successfully."
 
+      - name: Clean Apktool Framework Directory
+        run: |
+          echo "Emptying Apktool framework directory to ensure a clean slate..."
+          sudo apktool empty-framework-dir
+          if [ $? -eq 0 ]; then
+            echo "Apktool framework directory cleared successfully."
+          else
+            echo "Warning: apktool empty-framework-dir command completed with a non-zero exit code. This might indicate nothing was there to clean, or a minor issue. Proceeding."
+          fi
+
+      - name: Install Apktool Frameworks
+        run: |
+          echo "Installing Apktool frameworks..."
+          FRAMEWORK_APK="/home/runner/work/Porting/Porting/system/framework/framework-res.apk"
+          if [ -f "$FRAMEWORK_APK" ]; then
+            sudo apktool if "$FRAMEWORK_APK"
+            if [ $? -ne 0 ]; then echo "Apktool framework installation failed! Check framework-res.apk path and file integrity."; exit 1; fi
+            echo "Apktool framework installed successfully."
+          else
+            echo "Error: framework-res.apk not found at $FRAMEWORK_APK. Cannot install framework. Ensure your ROM files are correctly extracted."
+            exit 1
+          fi
+
       - name: Download OnePlus Firmware
         id: download_firmware
         run: |
@@ -624,7 +647,7 @@ jobs:
 
       - name: Convert system folder to system.img with specific size
         run: |
-          TARGET_SYSTEM_IMG_SIZE_BYTES=4221225472
+          TARGET_SYSTEM_IMG_SIZE_BYTES=3221225472
           SYSTEM_FOLDER_SIZE=$(sudo du -bs system | awk '{print $1}')
           echo "Current system folder size: $SYSTEM_FOLDER_SIZE bytes"
 
