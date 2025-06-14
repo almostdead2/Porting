@@ -783,6 +783,20 @@ jobs:
 
           echo "All reserve partition preparation and image creation steps complete."
 
+      - name: Rename Reserve Image
+        run: |
+          OLD_IMG_PATH="${{ github.workspace }}/reserve_new.img"
+          NEW_IMG_PATH="${{ github.workspace }}/reserve.img"
+          
+          echo "Renaming $OLD_IMG_PATH to $NEW_IMG_PATH..."
+          if [ -f "$OLD_IMG_PATH" ]; then
+            sudo mv "$OLD_IMG_PATH" "$NEW_IMG_PATH"
+            echo "Image successfully renamed."
+          else
+            echo "Error: $OLD_IMG_PATH not found for renaming. Ensure the previous step created it correctly."
+            exit 1
+          fi
+
       - name: Convert system folder to system.img with specific size
         run: |
           TARGET_SYSTEM_IMG_SIZE_BYTES=3221225472
@@ -843,9 +857,10 @@ jobs:
         run: |
           BUILD_DATE=$(date +%Y%m%d)
           ROM_FILENAME="OnePlus-Port-ROM-$BUILD_DATE.zip"
+          RESERVE_IMG_PATH="${{ github.workspace }}/reserve.img"
           ROM_ZIP_PATH="test/$ROM_FILENAME" 
           echo "Zipping final files into $ROM_ZIP_PATH..."
-          zip -r "$ROM_ZIP_PATH" test/system.new.dat.br test/system.patch.dat test/system.transfer.list
+          zip -r "$ROM_ZIP_PATH" test/system.new.dat.br test/system.patch.dat test/system.transfer.list "$RESERVE_IMG_PATH"
           if [ $? -ne 0 ]; then echo "Zipping failed."; exit 1; fi
           echo "ROM_ZIP_PATH=$ROM_ZIP_PATH" >> "$GITHUB_ENV"
           echo "ROM_FILENAME=$ROM_FILENAME" >> "$GITHUB_ENV"
