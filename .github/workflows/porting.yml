@@ -55,7 +55,7 @@ jobs:
       - name: Install Apktool Frameworks
         run: |
           echo "Installing Apktool frameworks..."
-          FRAMEWORK_APK="/home/runner/work/Porting/Porting/system/framework/framework-res.apk"
+          FRAMEWORK_APK="/home/runner/work/Porting/Porting/system/system/framework/framework-res.apk"
           if [ -f "$FRAMEWORK_APK" ]; then
             sudo apktool if "$FRAMEWORK_APK"
             if [ $? -ne 0 ]; then echo "Apktool framework installation failed! Check framework-res.apk path and file integrity."; exit 1; fi
