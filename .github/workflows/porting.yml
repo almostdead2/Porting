@@ -715,6 +715,67 @@ jobs:
           echo "$(pwd)" >> "$GITHUB_PATH"
           echo "make_ext4fs from repository root is ready."
 
+      - name: Prepare Reserve Partition and Create Image
+        run: |
+          ROM_ROOT="${{ github.workspace }}/Porting/Porting"
+          OLD_RESERVE_DIR="$ROM_ROOT/system/system/reserve"
+          NEW_RESERVE_WORKSPACE_DIR="${{ github.workspace }}/reserve_new"
+          CUST_DIR="$ROM_ROOT/system/cust"
+
+          echo "Moving contents from $OLD_RESERVE_DIR to $NEW_RESERVE_WORKSPACE_DIR..."
+          if [ -d "$OLD_RESERVE_DIR" ]; then
+            sudo mkdir -p "$NEW_RESERVE_WORKSPACE_DIR"
+            sudo mv -T "$OLD_RESERVE_DIR"/* "$NEW_RESERVE_WORKSPACE_DIR/"
+            sudo rm -rf "$OLD_RESERVE_DIR"
+            echo "Contents moved and original directory $OLD_RESERVE_DIR removed."
+          else
+            echo "Warning: Original reserve directory not found at $OLD_RESERVE_DIR. Skipping move."
+            sudo mkdir -p "$NEW_RESERVE_WORKSPACE_DIR"
+          fi
+
+          echo "Setting permissions for files and folders in $NEW_RESERVE_WORKSPACE_DIR..."
+          sudo chown -R 1004:1004 "$NEW_RESERVE_WORKSPACE_DIR"
+
+          find "$NEW_RESERVE_WORKSPACE_DIR" -type d -exec sudo chmod 0775 {} +
+          echo "Directory permissions set to 0775."
+
+          find "$NEW_RESERVE_WORKSPACE_DIR" -name "*.apk" -type f -exec sudo chmod 0664 {} +
+          echo "APK file permissions set to 0664."
+
+          echo "Permissions set for $NEW_RESERVE_WORKSPACE_DIR."
+
+          IMAGE_SIZE_MB=832 
+          IMAGE_SIZE_BYTES=$(($IMAGE_SIZE_MB * 1024 * 1024))
+
+          echo "Attempting to create reserve_new.img of size ${IMAGE_SIZE_MB}MB..."
+          if command -v make_ext4fs &> /dev/null; then
+            sudo make_ext4fs -s -J -T 0 -L reserve_new -l $IMAGE_SIZE_BYTES -a reserve_new "$NEW_RESERVE_WORKSPACE_DIR.img" "$NEW_RESERVE_WORKSPACE_DIR"
+            if [ $? -ne 0 ]; then echo "Failed to create reserve_new.img using make_ext4fs."; exit 1; fi
+            echo "reserve_new.img created at $NEW_RESERVE_WORKSPACE_DIR.img"
+          else
+            echo "Error: make_ext4fs command not found. Cannot create reserve_new.img."
+            echo "You need a separate step in your workflow to install Android build tools or make_ext4fs."
+            exit 1
+          fi
+
+          echo "Creating cust folder at $CUST_DIR..."
+          sudo mkdir -p "$CUST_DIR"
+          if [ $? -ne 0 ]; then echo "Failed to create cust directory."; exit 1; fi
+          echo "Cust folder created."
+
+          echo "Creating folder symlinks from $NEW_RESERVE_WORKSPACE_DIR to $OLD_RESERVE_DIR..."
+
+          sudo mkdir -p "$OLD_RESERVE_DIR"
+
+          find "$NEW_RESERVE_WORKSPACE_DIR" -maxdepth 1 -mindepth 1 -type d | while read -r sub_dir; do
+              dirname=$(basename "$sub_dir")
+              sudo ln -s "$sub_dir" "$OLD_RESERVE_DIR/$dirname"
+              if [ $? -ne 0 ]; then echo "Warning: Failed to create symlink for directory $dirname."; fi
+          done
+          echo "Folder symlinks created in $OLD_RESERVE_DIR."
+
+          echo "Reserve partition preparation and image creation complete."
+
       - name: Convert system folder to system.img with specific size
         run: |
           TARGET_SYSTEM_IMG_SIZE_BYTES=3221225472
