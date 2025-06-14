@@ -42,29 +42,6 @@ jobs:
 
           echo "Apktool installed successfully."
 
-      - name: Clean Apktool Framework Directory
-        run: |
-          echo "Emptying Apktool framework directory to ensure a clean slate..."
-          sudo apktool empty-framework-dir
-          if [ $? -eq 0 ]; then
-            echo "Apktool framework directory cleared successfully."
-          else
-            echo "Warning: apktool empty-framework-dir command completed with a non-zero exit code. This might indicate nothing was there to clean, or a minor issue. Proceeding."
-          fi
-
-      - name: Install Apktool Frameworks
-        run: |
-          echo "Installing Apktool frameworks..."
-          FRAMEWORK_APK="/home/runner/work/Porting/Porting/system/system/framework/framework-res.apk"
-          if [ -f "$FRAMEWORK_APK" ]; then
-            sudo apktool if "$FRAMEWORK_APK"
-            if [ $? -ne 0 ]; then echo "Apktool framework installation failed! Check framework-res.apk path and file integrity."; exit 1; fi
-            echo "Apktool framework installed successfully."
-          else
-            echo "Error: framework-res.apk not found at $FRAMEWORK_APK. Cannot install framework. Ensure your ROM files are correctly extracted."
-            exit 1
-          fi
-
       - name: Download OnePlus Firmware
         id: download_firmware
         run: |
@@ -237,6 +214,29 @@ jobs:
             extract_image_via_mount "opproduct.img" "opproduct" || exit 1
           else
             echo "opproduct.img not found. Skipping extraction."
+          fi
+
+      - name: Clean Apktool Framework Directory
+        run: |
+          echo "Emptying Apktool framework directory to ensure a clean slate..."
+          sudo apktool empty-framework-dir
+          if [ $? -eq 0 ]; then
+            echo "Apktool framework directory cleared successfully."
+          else
+            echo "Warning: apktool empty-framework-dir command completed with a non-zero exit code. This might indicate nothing was there to clean, or a minor issue. Proceeding."
+          fi
+
+      - name: Install Apktool Frameworks
+        run: |
+          echo "Installing Apktool frameworks..."
+          FRAMEWORK_APK="system/system/framework/framework-res.apk"
+          if [ -f "$FRAMEWORK_APK" ]; then
+            sudo apktool if "$FRAMEWORK_APK"
+            if [ $? -ne 0 ]; then echo "Apktool framework installation failed! Check framework-res.apk path and file integrity."; exit 1; fi
+            echo "Apktool framework installed successfully."
+          else
+            echo "Error: framework-res.apk not found at $FRAMEWORK_APK. Cannot install framework. Ensure your ROM files are correctly extracted."
+            exit 1
           fi
 
       - name: Merge System Partitions
