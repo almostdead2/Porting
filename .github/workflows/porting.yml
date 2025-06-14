@@ -332,6 +332,43 @@ jobs:
           sudo touch "$KEYLAYOUT_DIR/uinput-goodix.kl"
           echo "Keylayout files created."
 
+      - name: Replace OPWallpaperResources.apk
+        run: |
+          TARGET_APK_DIR="system/system_ext/app/OPWallpaperResources"
+          TARGET_APK_PATH="$TARGET_APK_DIR/OPWallpaperResources.apk"
+          SOURCE_APK_PATH="${{ github.workspace }}/for_OPWallpaperResources/OPWallpaperResources.apk"
+
+          echo "Attempting to replace OPWallpaperResources.apk..."
+
+          if [ ! -d "$TARGET_APK_DIR" ]; then
+            echo "Error: Target directory not found: $TARGET_APK_DIR"
+            echo "Please verify the path 'system/system_ext/app/OPWallpaperResources'."
+            exit 1
+          fi
+
+          if [ -f "$TARGET_APK_PATH" ]; then
+            echo "Deleting original OPWallpaperResources.apk: $TARGET_APK_PATH"
+            sudo rm "$TARGET_APK_PATH"
+            if [ $? -ne 0 ]; then echo "Failed to delete original OPWallpaperResources.apk."; exit 1; fi
+          else
+            echo "Original OPWallpaperResources.apk not found at $TARGET_APK_PATH (might be already deleted or path is wrong, proceeding)."
+          fi
+
+          if [ ! -f "$SOURCE_APK_PATH" ]; then
+            echo "Error: Custom OPWallpaperResources.apk not found at source: $SOURCE_APK_PATH"
+            echo "Please ensure 'my_G2/for_OPWallpaperResources/OPWallpaperResources.apk' is in your repository and accessible."
+            exit 1
+          fi
+
+          echo "Copying custom OPWallpaperResources.apk from $SOURCE_APK_PATH to $TARGET_APK_DIR"
+          sudo cp "$SOURCE_APK_PATH" "$TARGET_APK_DIR/"
+          if [ $? -ne 0 ]; then echo "Failed to copy custom OPWallpaperResources.apk."; exit 1; fi
+          echo "OPWallpaperResources.apk replaced successfully."
+
+          sudo chown 0:0 "$TARGET_APK_PATH"
+          sudo chmod 0644 "$TARGET_APK_PATH"
+          echo "Permissions for $TARGET_APK_PATH set."
+
       - name: Remove Unwanted Apps
         run: |
           echo "Attempting to remove unwanted apps from various partitions..."
