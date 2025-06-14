@@ -849,10 +849,17 @@ jobs:
 
           SELINUX_OUTPUT_FILE="selinux_contexts.txt"
           PERMISSIONS_OUTPUT_FILE="file_permissions.txt"
+          PLAT_FILE_CONTEXTS="$ROM_ROOT/system/etc/selinux/plat_file_contexts"
 
-          echo "Generating SELinux contexts to $SELINUX_OUTPUT_FILE..."
-          sudo find system/ -print0 | sudo xargs -0 -I{} stat -c "%n %Z" "{}" > "$SELINUX_OUTPUT_FILE"
-          echo "SELinux contexts saved."
+          echo "Generating SELinux contexts (from plat_file_contexts) to $SELINUX_OUTPUT_FILE..."
+          if [ -f "$PLAT_FILE_CONTEXTS" ]; then
+            sudo cat "$PLAT_FILE_CONTEXTS" > "$SELINUX_OUTPUT_FILE"
+            echo "SELinux contexts successfully saved from $PLAT_FILE_CONTEXTS."
+          else
+            echo "Error: SELinux context file NOT FOUND at $PLAT_FILE_CONTEXTS."
+            echo "The '$SELINUX_OUTPUT_FILE' artifact will be empty or contain an error message."
+            echo "Please ensure the 'Ensure SELinux file_contexts is Present' step completed successfully."
+          fi
 
           echo "Generating standard permissions, UID, and GID to $PERMISSIONS_OUTPUT_FILE..."
           sudo find system/ -print0 | sudo xargs -0 -I{} stat -c "%n %u %g %a" "{}" > "$PERMISSIONS_OUTPUT_FILE"
