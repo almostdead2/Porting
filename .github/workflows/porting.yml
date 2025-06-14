@@ -243,12 +243,12 @@ jobs:
         run: |
           echo "Copying system_ext/ contents to system/system_ext..."
           mkdir -p system/system_ext
-          sudo cp -r system_ext/* system/system_ext/
+          sudo cp -a system_ext/* system/system_ext/
           if [ $? -ne 0 ]; then echo "Copy system_ext failed"; exit 1; fi
 
           echo "Copying product/ contents to system/product..."
           mkdir -p system/product
-          sudo cp -r product/* system/product/
+          sudo cp -a product/* system/product/
           if [ $? -ne 0 ]; then echo "Copy product failed"; exit 1; fi
 
           echo "All partition contents merged into system/."
@@ -843,7 +843,7 @@ jobs:
       - name: Generate Detailed File Attribute Logs
         run: |
           ROM_ROOT="${{ github.workspace }}"
-          cd "$ROM_ROOT"
+          cd "$ROM_ROOT" 
 
           echo "Starting to generate file attribute logs..."
 
@@ -851,11 +851,11 @@ jobs:
           PERMISSIONS_OUTPUT_FILE="file_permissions.txt"
 
           echo "Generating SELinux contexts to $SELINUX_OUTPUT_FILE..."
-          sudo find system/ -exec ls -dZ {} + | awk '{print $1, $NF}' > "$SELINUX_OUTPUT_FILE"
+          sudo find system/ -print0 | sudo xargs -0 -I{} stat -c "%n %Z" "{}" > "$SELINUX_OUTPUT_FILE"
           echo "SELinux contexts saved."
 
           echo "Generating standard permissions, UID, and GID to $PERMISSIONS_OUTPUT_FILE..."
-          sudo find system/ -exec stat -c "%n %u %g %a %A" {} + > "$PERMISSIONS_OUTPUT_FILE"
+          sudo find system/ -print0 | sudo xargs -0 -I{} stat -c "%n %u %g %a" "{}" > "$PERMISSIONS_OUTPUT_FILE"
           echo "Standard permissions saved."
 
           echo "Finished generating file attribute logs."
