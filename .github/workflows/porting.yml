@@ -840,39 +840,34 @@ jobs:
           ls -lh firmware_images/system.img
           ls -l firmware_images/system.img | awk '{print $5 " bytes"}'
 
-      - name: Detailed File/Folder Attribute Check and Save to Files
+      - name: Generate Detailed File Attribute Logs
         run: |
           ROM_ROOT="${{ github.workspace }}"
           cd "$ROM_ROOT" 
 
-          echo "================================================"
-          echo "         GENERATING DETAILED ATTRIBUTE LOGS     "
-          echo "================================================"
-          echo ""
+          echo "Starting to generate file attribute logs..."
 
           SELINUX_OUTPUT_FILE="selinux_contexts.txt"
           PERMISSIONS_OUTPUT_FILE="file_permissions.txt"
 
-          echo "--- 1. Generating SELinux Contexts Output ---"
-          echo "Saving to: $SELINUX_OUTPUT_FILE"
-          echo "Format: <path> <SELinux_context>"
-          echo "------------------------------------------------"
+          echo "Generating SELinux contexts to $SELINUX_OUTPUT_FILE..."
           sudo find system/ -print0 | sudo xargs -0 -I{} stat -c "%n %Z" "{}" > "$SELINUX_OUTPUT_FILE"
-          echo "Output saved to $SELINUX_OUTPUT_FILE"
-          echo "------------------------------------------------"
-          echo ""
+          echo "SELinux contexts saved."
 
-          echo "--- 2. Generating Standard Permissions, UID, and GID Output ---"
-          echo "Saving to: $PERMISSIONS_OUTPUT_FILE"
-          echo "Format: <path> <numeric_UID> <numeric_GID> <octal_permissions>"
-          echo "------------------------------------------------"
+          echo "Generating standard permissions, UID, and GID to $PERMISSIONS_OUTPUT_FILE..."
           sudo find system/ -print0 | sudo xargs -0 -I{} stat -c "%n %u %g %a" "{}" > "$PERMISSIONS_OUTPUT_FILE"
-          echo "Output saved to $PERMISSIONS_OUTPUT_FILE"
-          echo "------------------------------------------------"
-          echo ""
-          echo "================================================"
-          echo "           FINISHED ATTRIBUTE LOG GENERATION    "
-          echo "================================================"
+          echo "Standard permissions saved."
+
+          echo "Finished generating file attribute logs."
+
+      - name: Upload Attribute Logs as Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rom-file-attributes
+          path: |
+            ${{ github.workspace }}/selinux_contexts.txt
+            ${{ github.workspace }}/file_permissions.txt
+          retention-days: 7
 
       - name: Clean Up needed for space
         run: |
