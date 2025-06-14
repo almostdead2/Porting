@@ -34,8 +34,8 @@ jobs:
 
           pip install protobuf
 
-          wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O apktool
-          wget https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar -O apktool.jar
+          git clone --depth 1 https://github.com/iBotPeaches/Apktool.git apktool
+          wget https://github.com/iBotPeaches/Apktool/releases/download/v2.11.1/apktool_2.11.1.jar -O apktool.jar
           chmod +x apktool apktool.jar
           sudo mv apktool /usr/local/bin/
           sudo mv apktool.jar /usr/local/bin/
@@ -533,35 +533,6 @@ jobs:
           echo "Decompiling $SETTINGS_APK_PATH..."
           sudo apktool d -f "$SETTINGS_APK_PATH" -o "$DECOMPILED_SETTINGS_DIR"
           if [ $? -ne 0 ]; then echo "Apktool decompilation failed for Settings.apk."; exit 1; fi
-
-          echo "Attempting to fix AndroidManifest.xml recompilation error for 'pointerIconHelp'..."
-          MANIFEST_FILE="$DECOMPILED_SETTINGS_DIR/AndroidManifest.xml"
-          
-          if [ -f "$MANIFEST_FILE" ]; then
-            echo "--- DEBUG: Content around AndroidManifest.xml line 1425 BEFORE sed ---"
-            sudo sed -n '1420,1430p' "$MANIFEST_FILE"
-            echo "---------------------------------------------------------------------"
-
-            sudo sed -i -E 's/androidprv:pointerIconHelp[[:space:]]*=[[:space:]]*("true"|'\''true'\'')/android:pointerIconHelp="@null"/g' "$MANIFEST_FILE"
-
-            if [ $? -ne 0 ]; then
-                echo "Error: sed command failed to execute correctly for AndroidManifest.xml."
-                exit 1
-            fi
-
-            echo "--- DEBUG: Content around AndroidManifest.xml line 1425 AFTER sed ---"
-            sudo sed -n '1420,1430p' "$MANIFEST_FILE"
-            echo "--------------------------------------------------------------------"
-
-            echo "--- DEBUG: Searching for 'pointerIconHelp=\"true\"' or 'pointerIconHelp='true'' after sed ---"
-            sudo grep -n -E 'pointerIconHelp[[:space:]]*=[[:space:]]*("true"|'\''true'\'')' "$MANIFEST_FILE" || echo "  No remaining 'pointerIconHelp=\"true\"' or 'pointerIconHelp='true'' found (expected)."
-            echo "----------------------------------------------------------------------------------"
-
-            echo "Attempted fix for pointerIconHelp in AndroidManifest.xml applied."
-          else
-            echo "Error: AndroidManifest.xml not found at $MANIFEST_FILE. Cannot apply fix."
-            exit 1
-          fi
 
           echo "Applying smali modifications to OPUtils.smali..."
 
