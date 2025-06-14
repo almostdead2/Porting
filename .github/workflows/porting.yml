@@ -34,8 +34,8 @@ jobs:
 
           pip install protobuf
 
-          wget https://github.com/iBotPeaches/Apktool/tree/master/scripts/linux/apktool -O apktool
-          wget https://github.com/iBotPeaches/Apktool/releases/download/v2.11.1/apktool_2.11.1.jar -O apktool.jar
+          wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O apktool
+          wget https://github.com/iBotPeaches/Apktool/releases/download/v2.6.0/apktool_2.6.0.jar -O apktool.jar
           chmod +x apktool apktool.jar
           sudo mv apktool /usr/local/bin/
           sudo mv apktool.jar /usr/local/bin/
