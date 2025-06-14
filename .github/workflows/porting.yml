@@ -749,7 +749,7 @@ jobs:
 
           echo "Attempting to create reserve_new.img of size ${IMAGE_SIZE_MB}MB..."
           if command -v make_ext4fs &> /dev/null; then
-            sudo make_ext4fs -s -J -T 0 -L reserve_new -l $IMAGE_SIZE_BYTES -a reserve_new "$NEW_RESERVE_WORKSPACE_DIR.img" "$NEW_RESERVE_WORKSPACE_DIR"
+            make_ext4fs -s -J -T 0 -L reserve_new -l $IMAGE_SIZE_BYTES -a reserve_new "$NEW_RESERVE_WORKSPACE_DIR.img" "$NEW_RESERVE_WORKSPACE_DIR"
             if [ $? -ne 0 ]; then echo "Failed to create reserve_new.img using make_ext4fs."; exit 1; fi
             echo "reserve_new.img created at $NEW_RESERVE_WORKSPACE_DIR.img"
           else
