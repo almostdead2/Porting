@@ -874,15 +874,6 @@ jobs:
           echo "           FINISHED ATTRIBUTE LOG GENERATION    "
           echo "================================================"
 
-      - name: Upload Attribute Check Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: rom-attribute-logs
-          path: |
-            ${{ github.workspace }}/selinux_contexts.txt
-            ${{ github.workspace }}/file_permissions.txt
-          retention-days: 7
-
       - name: Clean Up needed for space
         run: |
           echo "Cleaning up for space..."
