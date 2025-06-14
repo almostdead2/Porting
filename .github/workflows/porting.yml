@@ -717,64 +717,71 @@ jobs:
 
       - name: Prepare Reserve Partition and Create Image
         run: |
-          ROM_ROOT="${{ github.workspace }}/Porting/Porting"
-          OLD_RESERVE_DIR="$ROM_ROOT/system/system/reserve"
-          NEW_RESERVE_WORKSPACE_DIR="${{ github.workspace }}/reserve_new"
-          CUST_DIR="$ROM_ROOT/system/cust"
+          ROM_ROOT="${{ github.workspace }}/Porting/Porting" 
 
-          echo "Moving contents from $OLD_RESERVE_DIR to $NEW_RESERVE_WORKSPACE_DIR..."
-          if [ -d "$OLD_RESERVE_DIR" ]; then
-            sudo mkdir -p "$NEW_RESERVE_WORKSPACE_DIR"
-            sudo mv -T "$OLD_RESERVE_DIR"/* "$NEW_RESERVE_WORKSPACE_DIR/"
-            sudo rm -rf "$OLD_RESERVE_DIR"
-            echo "Contents moved and original directory $OLD_RESERVE_DIR removed."
+          OLD_RESERVE_SOURCE_DIR="$ROM_ROOT/system/system/reserve" 
+
+          NEW_RESERVE_WORKSPACE_DIR="${{ github.workspace }}/reserve_new" 
+
+          CUST_MOUNTPOINT_DIR="$ROM_ROOT/system/cust" 
+
+          SYMLINK_TARGET_DIR="$ROM_ROOT/system/system/reserve" 
+
+          echo "1. Copying contents from $OLD_RESERVE_SOURCE_DIR to $NEW_RESERVE_WORKSPACE_DIR..."
+          sudo mkdir -p "$NEW_RESERVE_WORKSPACE_DIR"
+          if [ -d "$OLD_RESERVE_SOURCE_DIR" ]; then
+            sudo cp -r "$OLD_RESERVE_SOURCE_DIR"/* "$NEW_RESERVE_WORKSPACE_DIR/"
+            echo "   Contents copied to $NEW_RESERVE_WORKSPACE_DIR."
           else
-            echo "Warning: Original reserve directory not found at $OLD_RESERVE_DIR. Skipping move."
-            sudo mkdir -p "$NEW_RESERVE_WORKSPACE_DIR"
+            echo "   Warning: Original reserve directory ($OLD_RESERVE_SOURCE_DIR) not found. Proceeding assuming $NEW_RESERVE_WORKSPACE_DIR is already populated."
+            echo "   Ensure your apps are copied to $NEW_RESERVE_WORKSPACE_DIR by an earlier step if needed."
           fi
 
-          echo "Setting permissions for files and folders in $NEW_RESERVE_WORKSPACE_DIR..."
+          echo "2. Setting permissions for files and folders in $NEW_RESERVE_WORKSPACE_DIR..."
           sudo chown -R 1004:1004 "$NEW_RESERVE_WORKSPACE_DIR"
-
           find "$NEW_RESERVE_WORKSPACE_DIR" -type d -exec sudo chmod 0775 {} +
-          echo "Directory permissions set to 0775."
-
+          echo "   Directory permissions set to 0775."
           find "$NEW_RESERVE_WORKSPACE_DIR" -name "*.apk" -type f -exec sudo chmod 0664 {} +
-          echo "APK file permissions set to 0664."
+          echo "   APK file permissions set to 0664."
+          echo "   Permissions set for $NEW_RESERVE_WORKSPACE_DIR."
 
-          echo "Permissions set for $NEW_RESERVE_WORKSPACE_DIR."
-
-          IMAGE_SIZE_MB=832 
+          echo "3. Creating reserve_new.img from $NEW_RESERVE_WORKSPACE_DIR..."
+          IMAGE_SIZE_MB=830 
           IMAGE_SIZE_BYTES=$(($IMAGE_SIZE_MB * 1024 * 1024))
 
-          echo "Attempting to create reserve_new.img of size ${IMAGE_SIZE_MB}MB..."
           if command -v make_ext4fs &> /dev/null; then
-            make_ext4fs -s -J -T 0 -L reserve_new -l $IMAGE_SIZE_BYTES -a reserve_new "$NEW_RESERVE_WORKSPACE_DIR.img" "$NEW_RESERVE_WORKSPACE_DIR"
-            if [ $? -ne 0 ]; then echo "Failed to create reserve_new.img using make_ext4fs."; exit 1; fi
-            echo "reserve_new.img created at $NEW_RESERVE_WORKSPACE_DIR.img"
+            make_ext4fs -s -J -T 0 -L cust -l $IMAGE_SIZE_BYTES -a cust "$NEW_RESERVE_WORKSPACE_DIR.img" "$NEW_RESERVE_WORKSPACE_DIR"
+            if [ $? -ne 0 ]; then 
+              echo "   Error: Failed to create reserve_new.img using make_ext4fs. Please check the tool's output for details."
+              exit 1
+            fi
+            echo "   reserve_new.img created at $NEW_RESERVE_WORKSPACE_DIR.img"
           else
-            echo "Error: make_ext4fs command not found. Cannot create reserve_new.img."
-            echo "You need a separate step in your workflow to install Android build tools or make_ext4fs."
+            echo "   Error: 'make_ext4fs' command not found. This tool is essential for creating the image."
+            echo "   Please add a preceding step in your workflow to install Android build tools (like `apt-get install android-sdk-platform-tools-core`). Aborting."
             exit 1
           fi
 
-          echo "Creating cust folder at $CUST_DIR..."
-          sudo mkdir -p "$CUST_DIR"
-          if [ $? -ne 0 ]; then echo "Failed to create cust directory."; exit 1; fi
-          echo "Cust folder created."
+          echo "4. Preparing $CUST_MOUNTPOINT_DIR (empty mount point) in system.img..."
+          sudo mkdir -p "$CUST_MOUNTPOINT_DIR"
+          sudo rm -rf "$CUST_MOUNTPOINT_DIR"/*
+          echo "   Mount point directory $CUST_MOUNTPOINT_DIR prepared as empty."
 
-          echo "Creating folder symlinks from $NEW_RESERVE_WORKSPACE_DIR to $OLD_RESERVE_DIR..."
+          echo "5. Creating symlinks in $SYMLINK_TARGET_DIR pointing to $CUST_MOUNTPOINT_DIR..."
+          sudo mkdir -p "$SYMLINK_TARGET_DIR"
+          sudo rm -rf "$SYMLINK_TARGET_DIR"/*
 
-          sudo mkdir -p "$OLD_RESERVE_DIR"
+          find "$NEW_RESERVE_WORKSPACE_DIR" -maxdepth 1 -mindepth 1 -type d | while read -r app_folder_path; do
+              dirname=$(basename "$app_folder_path")
 
-          find "$NEW_RESERVE_WORKSPACE_DIR" -maxdepth 1 -mindepth 1 -type d | while read -r sub_dir; do
-              dirname=$(basename "$sub_dir")
-              sudo ln -s "$sub_dir" "$OLD_RESERVE_DIR/$dirname"
-              if [ $? -ne 0 ]; then echo "Warning: Failed to create symlink for directory $dirname."; fi
+              sudo ln -s "$CUST_MOUNTPOINT_DIR/$dirname" "$SYMLINK_TARGET_DIR/$dirname"
+              if [ $? -ne 0 ]; then 
+                echo "   Warning: Failed to create symlink for directory $dirname. This might cause issues if the app relies on it."
+              fi
           done
-          echo "Folder symlinks created in $OLD_RESERVE_DIR."
+          echo "   Folder symlinks created in $SYMLINK_TARGET_DIR."
 
-          echo "Reserve partition preparation and image creation complete."
+          echo "All reserve partition preparation and image creation steps complete."
 
       - name: Convert system folder to system.img with specific size
         run: |
