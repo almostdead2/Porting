@@ -3,16 +3,6 @@
 # Exit immediately if a command exits with a non-zero status.
 set -e
 
-# --- Functions ---
-
-log_step() {
-    echo ""
-    echo "==================================================================="
-    echo "STEP $1: $2"
-    echo "==================================================================="
-    echo ""
-}
-
 # --- Workflow Inputs (passed as environment variables from the YAML) ---
 FIRMWARE_URL="$1"
 if [ -z "$FIRMWARE_URL" ]; then
