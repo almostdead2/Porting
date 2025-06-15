@@ -4,9 +4,9 @@
 set -e
 
 # --- Configuration ---
-# IMPORTANT: REPLACE WITH ACTUAL FIRMWARE URL.
-# If this URL requires authentication, consider using secrets in your .yml and passing them as environment variables.
-FIRMWARE_URL="YOUR_ONEPLUS_FIRMWARE_DOWNLOAD_URL_HERE"
+# FIRMWARE_URL is now expected to be passed as an environment variable from the .yml workflow.
+# For local testing, you can uncomment and set it here, but it will be overridden by GitHub Actions.
+# FIRMWARE_URL="YOUR_ONEPLUS_FIRMWARE_DOWNLOAD_URL_HERE_FOR_LOCAL_TESTING_ONLY"
 
 FIRMWARE_DIR="firmware"
 MOUNT_DIR="mount_points"
@@ -63,6 +63,12 @@ trap cleanup_mounts EXIT
 
 # --- Main Script ---
 
+# Check if FIRMWARE_URL is provided (it should come from the .yml workflow input)
+if [ -z "$FIRMWARE_URL" ]; then
+    echo "Error: FIRMWARE_URL environment variable is not set. Please provide it via the workflow_dispatch input."
+    exit 1
+fi
+
 # Create necessary directories
 mkdir -p "$FIRMWARE_DIR" "$MOUNT_DIR" "$OUTPUT_DIR"
 
@@ -107,7 +113,7 @@ if [[ ! -f "$PAYLOAD_DUMPER_SCRIPT" ]]; then
     exit 1
 fi
 
-# Execute payload_dumper.py directly (THE CORRECTED LINE)
+# Execute payload_dumper.py directly
 python3 "$PAYLOAD_DUMPER_SCRIPT" "$FIRMWARE_DIR/$PAYLOAD_BIN" --output "$OUTPUT_DIR"
 if [[ $? -ne 0 ]]; then
     echo "Error: Failed to extract payload.bin using payload_dumper. Make sure Python dependencies are met."
@@ -134,7 +140,6 @@ for img in $ALL_EXTRACTED_IMGS; do
             if [[ "$IMG_BASENAME" == "$optional" ]]; then
                 KEEP=true
                 break
-            MENTER
             fi
         done
     fi
@@ -245,7 +250,7 @@ fi
 
 # Optional: Mount and process opproduct.img if it exists
 if [[ -f "${OUTPUT_DIR}/${OPPRODUCT_IMG}" ]]; then
-    log_step "9.2" "Mounting opproduct.img (if present) and deleting unwanted apps"
+    log_step "9.2" "Mounting opproduct.img (if present) and copying contents to system_new.img" # This was opproduct.img, not opproeduct.img. Corrected the log step too
     echo "Mounting ${OUTPUT_DIR}/${OPPRODUCT_IMG} to ${MOUNT_DIR}/opproduct"
     sudo mount -o loop "${OUTPUT_DIR}/${OPPRODUCT_IMG}" "${MOUNT_DIR}/opproduct"
     if [[ $? -ne 0 ]]; then echo "Warning: Failed to mount opproduct.img. Continuing without processing."; else
@@ -286,9 +291,9 @@ echo "Finished copying system.img contents. system.img unmounted."
 
 # 12. now mount system_ext.img to system_ext folder then copy everything to system_new then sync and then just umount system_ext.img only! (system_new.img still mounted)
 log_step "12" "Mounting system_ext.img and copying contents to system_new.img"
-echo "Mounting ${OUTPUT_DIR}/${SYSTEM_EXT_IMG} to ${MOUNT_DIR}/system_ext for copy"
+echo "Mounting ${OUTPUT_DIR}/${SYSTEM_EXT_IMG} to ${MOUNT_DIR}/system_ext"
 sudo mount -o loop "${OUTPUT_DIR}/${SYSTEM_EXT_IMG}" "${MOUNT_DIR}/system_ext"
-if [[ $? -ne 0 ]]; then echo "Error: Failed to mount system_ext.img for copy."; exit 1; fi
+if [[ $? -ne 0 ]]; then echo "Error: Failed to mount system_ext.img."; exit 1; fi
 
 echo "Copying contents from ${MOUNT_DIR}/system_ext/ to ${MOUNT_DIR}/system_new/"
 sudo rsync -a "${MOUNT_DIR}/system_ext/" "${MOUNT_DIR}/system_new/"
@@ -298,9 +303,9 @@ echo "Finished copying system_ext.img contents. system_ext.img unmounted."
 
 # 13. now mount product.img to product folder then copy everything to system_new then sync and then just umount product.img only! (system_new.img still mounted)
 log_step "13" "Mounting product.img and copying contents to system_new.img"
-echo "Mounting ${OUTPUT_DIR}/${PRODUCT_IMG} to ${MOUNT_DIR}/product for copy"
+echo "Mounting ${OUTPUT_DIR}/${PRODUCT_IMG} to ${MOUNT_DIR}/product"
 sudo mount -o loop "${OUTPUT_DIR}/${PRODUCT_IMG}" "${MOUNT_DIR}/product"
-if [[ $? -ne 0 ]]; then echo "Error: Failed to mount product.img for copy."; exit 1; fi
+if [[ $? -ne 0 ]]; then echo "Error: Failed to mount product.img."; exit 1; fi
 
 echo "Copying contents from ${MOUNT_DIR}/product/ to ${MOUNT_DIR}/system_new/"
 sudo rsync -a "${MOUNT_DIR}/product/" "${MOUNT_DIR}/system_new/"
@@ -311,7 +316,7 @@ echo "Finished copying product.img contents. product.img unmounted."
 # Optional: Copy odm.img if it exists
 if [[ -f "${OUTPUT_DIR}/${ODM_IMG}" ]]; then
     log_step "13.1" "Mounting odm.img (if present) and copying contents to system_new.img"
-    echo "Mounting ${OUTPUT_DIR}/${ODM_IMG} to ${MOUNT_DIR}/odm for copy"
+    echo "Mounting ${OUTPUT_DIR}/${ODM_IMG} to ${MOUNT_DIR}/odm"
     sudo mount -o loop "${OUTPUT_DIR}/${ODM_IMG}" "${MOUNT_DIR}/odm"
     if [[ $? -ne 0 ]]; then echo "Warning: Failed to mount odm.img for copy. Skipping."; else
         echo "Copying contents from ${MOUNT_DIR}/odm/ to ${MOUNT_DIR}/system_new/"
@@ -327,7 +332,7 @@ if [[ -f "${OUTPUT_DIR}/${OPPRODUCT_IMG}" ]]; then
     log_step "13.2" "Mounting opproduct.img (if present) and copying contents to system_new.img"
     echo "Mounting ${OUTPUT_DIR}/${OPPRODUCT_IMG} to ${MOUNT_DIR}/opproduct"
     sudo mount -o loop "${OUTPUT_DIR}/${OPPRODUCT_IMG}" "${MOUNT_DIR}/opproduct"
-    if [[ $? -ne 0 ]]; then echo "Warning: Failed to mount opproduct.img for copy. Skipping."; else
+    if [[ $? -ne 0 ]]; then echo "Warning: Failed to mount opproduct.img. Continuing without processing."; else
         echo "Copying contents from ${MOUNT_DIR}/opproduct/ to ${MOUNT_DIR}/system_new/"
         sudo rsync -a "${MOUNT_DIR}/opproduct/" "${MOUNT_DIR}/system_new/"
         sudo sync
