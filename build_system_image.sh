@@ -14,16 +14,17 @@ FINAL_MOUNT_POINT="final_system_mount" # Temporary mount point for the new image
 
 echo "--- Starting Comprehensive Image Creation and Modification Process ---"
 
-# --- PART 1: Firmware Extraction and Environment Setup (Originally in .yml) ---
+# --- PART 1: Firmware Extraction and Environment Setup ---
 
 echo "--- Setting up environment and extracting firmware ---"
 
-# Install Dependencies (Moved from .yml to ensure script self-sufficiency)
+# Install Dependencies
 echo "Updating apt package list and installing necessary tools..."
 sudo apt update
 sudo apt install -y unace unrar zip unzip p7zip-full liblz4-tool brotli default-jre
 sudo apt install -y libarchive-tools # For bsdtar etc.
 sudo apt install -y e2fsprogs # For mkfs.ext4, tune2fs, used for image manipulation
+sudo apt install -y android-sdk-libsparse-utils # For simg2img
 echo "Dependencies installed."
 
 # Apktool installation
@@ -36,9 +37,6 @@ sudo mv apktool.jar /usr/local/bin/
 echo "Apktool installed successfully."
 
 # Assuming FIRMWARE_URL is passed as an environment variable or manually set here for local testing
-# For GitHub Actions, this would typically come from workflow_dispatch inputs.
-# Example for local testing (uncomment and replace with a real URL):
-# FIRMWARE_URL="https://example.com/your_oneplus_firmware.zip"
 if [ -z "${FIRMWARE_URL}" ]; then
   echo "Error: FIRMWARE_URL environment variable is not set. Please set it or uncomment in script for local testing."
   exit 1
@@ -46,8 +44,7 @@ fi
 
 FIRMWARE_FILENAME=$(basename "$FIRMWARE_URL")
 echo "Downloading firmware from: $FIRMWARE_URL"
-# Using curl for cleaner progress bar output in CI/CD logs
-curl -L --progress-bar -o "$FIRMWARE_FILENAME" "$FIRMWARE_URL"
+curl -L -o "$FIRMWARE_FILENAME" "$FIRMWARE_URL" 2>&1 | grep -E '^  [0-9]{1,3}' | awk '{printf "Downloaded %d%%\n", $1}'
 if [ $? -ne 0 ]; then
   echo "Error: Firmware download failed."
   exit 1
@@ -81,7 +78,7 @@ if [ -f "$FIRMWARE_FILENAME" ]; then
 fi
 echo "--- Cleanup Complete ---"
 
-# --- Corrected payload.bin processing block ---
+# --- payload.bin processing block ---
 if [ -f firmware_extracted/payload.bin ]; then
   echo "payload.bin found. Extracting images using payload_dumper.py from vm03/payload_dumper.git..."
 
@@ -118,55 +115,60 @@ if [ -f firmware_extracted/payload.bin ]; then
   echo "Images extracted from payload.bin to ./output/"
   
   # --- Cleanup 2: Remove payload.bin and payload_dumper directory AFTER successful processing ---
-  # These checks are now correctly nested within the main 'if' block.
   echo "--- Cleanup: Removing payload.bin and payload_dumper directory ---"
   if [ -f "firmware_extracted/payload.bin" ]; then
     rm "firmware_extracted/payload.bin"
     echo "Removed firmware_extracted/payload.bin."
   fi
-  if [ -d "$PAYLOAD_DUMPER_DIR" ]; then # Use this specific check for the dumper dir
+  if [ -d "$PAYLOAD_DUMPER_DIR" ]; then
     rm -rf "$PAYLOAD_DUMPER_DIR"
     echo "Removed payload_dumper directory."
   fi
   echo "--- Cleanup Complete ---"
 
-# This `else` correctly belongs to the MAIN `if [ -f firmware_extracted/payload.bin ]; then`
-# It's now the *only* else for that main condition.
 else
   echo "payload.bin not found. Proceeding with direct image files from extracted firmware (if any)."
 fi
-# --- End of Corrected payload.bin processing block ---
 
-
+# Consolidate images into 'firmware_images' directory and convert to raw if sparse
 REQUIRED_IMAGES=("system.img" "product.img" "system_ext.img" "odm.img" "vendor.img" "boot.img")
-OPTIONAL_IMAGES=("opproduct.img")
+OPTIONAL_IMAGES=("opproduct.img") # Add other optional images here
 ALL_IMAGES_FOUND=true
 TARGET_DIR="firmware_images"
 mkdir -p "$TARGET_DIR"
 
-echo "Consolidating and selecting required images..."
-for img in "${REQUIRED_IMAGES[@]}"; do
+echo "Consolidating and processing images to raw format (if sparse)..."
+for img in "${REQUIRED_IMAGES[@]}" "${OPTIONAL_IMAGES[@]}"; do
+  source_path=""
   if [ -f "./output/$img" ]; then
-    echo "Found $img in ./output/"
-    mv "./output/$img" "$TARGET_DIR/"
+    source_path="./output/$img"
   elif [ -f "firmware_extracted/$img" ]; then
-    echo "Found $img in firmware_extracted/"
-    mv "firmware_extracted/$img" "$TARGET_DIR/"
-  else
-    echo "Warning: Required image $img not found in ./output/ or firmware_extracted/."
-    ALL_IMAGES_FOUND=false
+    source_path="firmware_extracted/$img"
   fi
-done
 
-for img in "${OPTIONAL_IMAGES[@]}"; do
-  if [ -f "./output/$img" ]; then
-    echo "Found optional image $img in ./output/"
-    mv "./output/$img" "$TARGET_DIR/"
-  elif [ -f "firmware_extracted/$img" ]; then
-    echo "Found optional image $img in firmware_extracted/"
-    mv "firmware_extracted/$img" "$TARGET_DIR/"
+  if [ -n "$source_path" ]; then
+    echo "Processing $img from $source_path..."
+    # Check if it's a sparse image and convert to raw if necessary
+    if head -c 4 "$source_path" | od -t x1 | grep -q "ed 26 ff 3a"; then # Magic for Android sparse image
+      echo "  Detected sparse image: $img. Converting to raw..."
+      simg2img "$source_path" "$TARGET_DIR/$img"
+      if [ $? -ne 0 ]; then
+        echo "  Error: simg2img failed for $img."
+        if [[ " ${REQUIRED_IMAGES[*]} " =~ " ${img} " ]]; then ALL_IMAGES_FOUND=false; fi
+        continue
+      fi
+      echo "  Converted $img to raw format."
+    else
+      echo "  $img is not a sparse image or already raw. Moving directly."
+      mv "$source_path" "$TARGET_DIR/"
+    fi
   else
-    echo "Optional image $img not found."
+    if [[ " ${REQUIRED_IMAGES[*]} " =~ " ${img} " ]]; then
+      echo "Warning: Required image $img not found in ./output/ or firmware_extracted/."
+      ALL_IMAGES_FOUND=false
+    else
+      echo "Optional image $img not found."
+    fi
   fi
 done
 
@@ -180,9 +182,163 @@ if ! $ALL_IMAGES_FOUND; then
 fi
 echo "--- Firmware extraction and setup complete ---"
 
-# --- PART 2: Image Creation and Modifications (Consolidated) ---
+# --- PART 2: Modify Source Images Individually ---
 
-echo "--- Starting Image Creation Process ---"
+# --- Function to modify a source image (mount, delete apps, unmount, replace original) ---
+modify_image_contents() {
+    local img_file_name="$1"        # e.g., "system.img", "system_ext.img", "product.img"
+    local source_img_path="firmware_images/${img_file_name}"
+    local temp_writable_img_path="${source_img_path}_temp_writable.img" # Temporary working copy
+    local temp_mount_point="${img_file_name}_temp_mount"        # Unique temp mount point
+
+    echo "--- Preparing to modify ${img_file_name} ---"
+
+    if [ ! -f "$source_img_path" ]; then
+        echo "Warning: Source image file ${source_img_path} not found. Skipping modification for this image."
+        return 0
+    fi
+
+    # Create a writable copy to work on, preserving the original until modification is complete
+    echo "Creating a writable copy of ${source_img_path} as ${temp_writable_img_path}..."
+    sudo cp "$source_img_path" "$temp_writable_img_path"
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to create writable copy of ${img_file_name}. Aborting modification."
+        return 1
+    fi
+
+    # --- DIAGNOSTIC STEP: Check filesystem type and integrity of the temporary image ---
+    echo "Diagnosing filesystem of ${temp_writable_img_path}..."
+    FS_TYPE=$(sudo file -sL "$temp_writable_img_path" | grep -oP 'filesystem: \K\w+')
+    echo "Detected filesystem type: $FS_TYPE"
+
+    if [[ "$FS_TYPE" != "ext4" ]]; then
+        echo "Error: Expected filesystem type 'ext4' but detected '$FS_TYPE' for ${temp_writable_img_path}."
+        echo "This script is designed for ext4 images. Please verify your source image format."
+        # Clean up and exit if the fundamental type is wrong
+        rm "$temp_writable_img_path"
+        return 1
+    fi
+
+    echo "Running e2fsck on ${temp_writable_img_path} to check/fix filesystem errors..."
+    if ! sudo e2fsck -f -y "$temp_writable_img_path"; then
+        echo "Warning: e2fsck reported issues with ${temp_writable_img_path} that could not be fully resolved. Proceeding with caution."
+    fi
+
+    echo "Resizing filesystem on ${temp_writable_img_path} to match image size..."
+    # resize2fs needs to be run without a specified size for it to extend to the device size
+    if ! sudo resize2fs "$temp_writable_img_path"; then
+        echo "Error: Failed to resize filesystem on ${temp_writable_img_path}. This might indicate severe corruption."
+        rm "$temp_writable_img_path"
+        return 1
+    fi
+    echo "Filesystem resized."
+    # --- END DIAGNOSTIC STEP ---
+
+    mkdir -p "$temp_mount_point"
+
+    TEMP_LOOP_DEV=$(sudo losetup -f --show "$temp_writable_img_path")
+    if [ -z "$TEMP_LOOP_DEV" ]; then
+        echo "Error: Failed to assign loop device for ${temp_writable_img_path}."
+        rm "$temp_writable_img_path"
+        return 1
+    fi
+    echo "Loop device assigned for ${temp_writable_img_path}: ${TEMP_LOOP_DEV}"
+
+    echo "Mounting ${temp_writable_img_path} to ${temp_mount_point}/ in read/write mode..."
+    sudo mount -t ext4 -o rw "${TEMP_LOOP_DEV}" "${temp_mount_point}"
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to mount ${temp_writable_img_path} in RW mode. Mount command output above."
+        echo "Attempting to detach loop device: ${TEMP_LOOP_DEV}"
+        sudo losetup -d "${TEMP_LOOP_DEV}" || true
+        # Clean up the temporary image file on mount failure
+        if [ -f "$temp_writable_img_path" ]; then
+            echo "Removing problematic temporary image: ${temp_writable_img_path}"
+            rm "$temp_writable_img_path"
+        fi
+        return 1
+    fi
+    echo "Mounted ${temp_writable_img_path} to ${temp_mount_point}/."
+
+    echo "--- Deleting unwanted apps from mounted ${img_file_name} (${temp_mount_point}/) ---"
+
+    APPS_TO_REMOVE=(
+      "OnePlusCamera"
+      "Drive"
+      "Duo"
+      "Gmail2"
+      "Maps"
+      "Music2"
+      "Photos"
+      "GooglePay"
+      "GoogleTTS"
+      "Videos"
+      "YouTube"
+      "HotwordEnrollmentOKGoogleWCD9340"
+      "HotwordEnrollmentXGoogleWCD9340"
+      "Velvet"
+      "By_3rd_PlayAutoInstallConfigOverSeas"
+      "OPBackup"
+      "OPForum"
+    )
+
+    declare -a COMMON_APP_PATHS=(
+      "${temp_mount_point}/app"
+      "${temp_mount_point}/priv-app"
+    )
+
+    for app_name in "${APPS_TO_REMOVE[@]}"; do
+      APP_FOUND_IN_SOURCE=false
+      for app_path_base in "${COMMON_APP_PATHS[@]}"; do
+        TARGET_DIR="$app_path_base/$app_name"
+        if [ -d "$TARGET_DIR" ]; then
+          echo "Removing "$TARGET_DIR" from ${img_file_name}..."
+          sudo rm -rf "$TARGET_DIR"
+          APP_FOUND_IN_SOURCE=true
+          break
+        fi
+      done
+      if ! $APP_FOUND_IN_SOURCE; then
+        echo "Warning: App folder '$app_name' not found in ${img_file_name}'s direct app/priv-app directories. Skipping for this image."
+      fi
+    done
+    echo "App deletion from ${img_file_name} complete."
+
+    echo "Syncing data for ${temp_mount_point} before unmount..."
+    sync
+    sudo umount "${temp_mount_point}"
+    echo "Unmounted ${temp_mount_point}."
+    sudo losetup -d "${TEMP_LOOP_DEV}"
+    echo "Detached loop device ${TEMP_LOOP_DEV}."
+    rmdir "${temp_mount_point}"
+
+    echo "Replacing original ${source_img_path} with modified ${temp_writable_img_path}..."
+    sudo mv "$temp_writable_img_path" "$source_img_path"
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to replace original image with modified version."
+        return 1
+    fi
+    echo "${source_img_path} has been updated with modified contents."
+
+    return 0
+}
+
+echo "--- PHASE 1: Modifying individual source images (product, system_ext, system, odm, opproduct) ---"
+
+# Modify each source image. The modified file will replace the original in firmware_images/.
+modify_image_contents "product.img" || exit 1
+modify_image_contents "system_ext.img" || exit 1
+modify_image_contents "system.img" || exit 1
+modify_image_contents "odm.img" || exit 1
+
+if [ -f "firmware_images/opproduct.img" ]; then
+  modify_image_contents "opproduct.img" || exit 1
+else
+  echo "opproduct.img not found in firmware_images. Skipping its modification."
+fi
+
+echo "--- All source images in 'firmware_images/' are now modified. ---"
+
+echo "--- PHASE 2: Creating and Populating ${FINAL_IMAGE_NAME} from modified source images ---"
 
 # 1. Create and Format the empty system_new.img file
 echo "Creating empty ${FINAL_IMAGE_NAME} with size ${IMAGE_SIZE_BYTES} bytes..."
@@ -205,7 +361,6 @@ echo "Automatic fsck disabled."
 echo "Mounting ${FINAL_IMAGE_NAME} to ${FINAL_MOUNT_POINT}/ in read/write mode..."
 mkdir -p "${FINAL_MOUNT_POINT}" # Create the mount directory
 
-# Find and assign a loop device to the new image file
 FINAL_LOOP_DEV=$(sudo losetup -f --show "${FINAL_IMAGE_NAME}")
 if [ -z "$FINAL_LOOP_DEV" ]; then
   echo "Error: Failed to assign loop device for ${FINAL_IMAGE_NAME}."
@@ -213,151 +368,93 @@ if [ -z "$FINAL_LOOP_DEV" ]; then
 fi
 echo "Loop device assigned for ${FINAL_IMAGE_NAME}: ${FINAL_LOOP_DEV}"
 
-# Mount the new image
 sudo mount -t ext4 -o rw "${FINAL_LOOP_DEV}" "${FINAL_MOUNT_POINT}"
 if [ $? -ne 0 ]; then
   echo "Error: Failed to mount ${FINAL_IMAGE_NAME} in RW mode. Attempting to detach loop device."
-  sudo losetup -d "${FINAL_LOOP_DEV}" || true # Detach even if mount failed
+  sudo losetup -d "${FINAL_LOOP_DEV}" || true
   exit 1
 fi
 echo "Mounted ${FINAL_IMAGE_NAME} to ${FINAL_MOUNT_POINT}/."
 
-# --- Unified function to process (copy, modify, copy to final) source images ---
-process_and_copy_source_image() {
-    local img_file_name="$1"        # e.g., "system.img", "system_ext.img", "product.img", "odm.img"
-    local destination_subdir="$2" # Subdirectory within final_system_mount (e.g., "", "system_ext", "product", "odm")
-    local source_img_path="firmware_images/${img_file_name}"
-    local temp_writable_img="${img_file_name}_temp_writable.img" # Unique temporary writable copy name
-    local temp_mount_point="${img_file_name}_temp_mount"        # Unique temporary mount point
-    local final_destination_path="${FINAL_MOUNT_POINT}/${destination_subdir}"
+# --- Copying modified image contents to FINAL_MOUNT_POINT ---
+echo "--- Copying contents from modified source images to ${FINAL_IMAGE_NAME} ---"
 
-    echo "--- Processing ${img_file_name}: Creating writable copy, Modifying (deleting apps), then Copying to Final Image ---"
+# Function to copy contents from a modified source image to the final image
+copy_modified_source_to_final() {
+    local source_img_file="$1" # e.g., "system.img"
+    local dest_subdir="$2" # e.g., "" for system, "product", "system_ext"
+    local source_mount_point="${source_img_file}_copy_mount"
+    local source_path="firmware_images/${source_img_file}"
+    local final_dest_path="${FINAL_MOUNT_POINT}/${dest_subdir}"
 
-    if [ ! -f "$source_img_path" ]; then
-        echo "Warning: Source image file ${source_img_path} not found. Skipping processing for this image."
-        return 0 # Return success to continue with other images if it's optional
+    if [ ! -f "$source_path" ]; then
+        echo "Warning: Modified source image ${source_path} not found. Skipping copy for this partition."
+        return 0
     fi
 
-    echo "Creating a writable copy of ${source_img_path} as ${temp_writable_img}..."
-    sudo cp "$source_img_path" "$temp_writable_img"
-    if [ $? -ne 0 ]; then echo "Error: Failed to create writable copy of ${img_file_name}."; return 1; fi
-
-    # Ensure the copied image's filesystem is consistent and its size matches the image file
-    sudo e2fsck -f -y "$temp_writable_img" || true
-    sudo resize2fs "$temp_writable_img"
-
-    mkdir -p "$temp_mount_point"
-
-    TEMP_LOOP_DEV=$(sudo losetup -f --show "$temp_writable_img")
-    if [ -z "$TEMP_LOOP_DEV" ]; then
-        echo "Error: Failed to assign loop device for ${temp_writable_img}."
+    echo "Mounting modified ${source_img_file} for copying..."
+    mkdir -p "$source_mount_point"
+    local COPY_LOOP_DEV=$(sudo losetup -f --show "$source_path")
+    if [ -z "$COPY_LOOP_DEV" ]; then
+        echo "Error: Failed to assign loop device for copying ${source_img_file}."
         return 1
     fi
-    echo "Loop device assigned for ${temp_writable_img}: ${TEMP_LOOP_DEV}"
-
-    echo "Mounting ${temp_writable_img} to ${temp_mount_point}/ in read/write mode..."
-    sudo mount -t ext4 -o rw "${TEMP_LOOP_DEV}" "${temp_mount_point}"
+    sudo mount -t ext4 -o ro "${COPY_LOOP_DEV}" "$source_mount_point"
     if [ $? -ne 0 ]; then
-        echo "Error: Failed to mount ${temp_writable_img} in RW mode. Attempting to detach loop device."
-        sudo losetup -d "${TEMP_LOOP_DEV}" || true
+        echo "Error: Failed to mount modified ${source_img_file} for copying."
+        sudo losetup -d "${COPY_LOOP_DEV}" || true
         return 1
     fi
-    echo "Mounted ${temp_writable_img} to ${temp_mount_point}/."
 
-    echo "--- Deleting unwanted apps from mounted ${img_file_name} (${temp_mount_point}/) ---"
-
-    # Define the common list of apps to remove
-    APPS_TO_REMOVE=(
-      "OnePlusCamera"
-      "Drive"
-      "Duo"
-      "Gmail2"
-      "Maps"
-      "Music2"
-      "Photos"
-      "GooglePay"
-      "GoogleTTS"
-      "Videos"
-      "YouTube"
-      "HotwordEnrollmentOKGoogleWCD9340"
-      "HotwordEnrollmentXGoogleWCD9340"
-      "Velvet"
-      "By_3rd_PlayAutoInstallConfigOverSeas"
-      "OPBackup"
-      "OPForum"
-    )
-
-    # Define common app paths relevant *within the root of the currently mounted temporary image*
-    declare -a COMMON_APP_PATHS=(
-      "${temp_mount_point}/app"
-      "${temp_mount_point}/priv-app"
-      # These apply to system, system_ext, product, odm, opproduct if they contain app/priv-app
-      # No need for "/product/app" etc. here, as temp_mount_point is already the root of product.img
-    )
-
-    for app_name in "${APPS_TO_REMOVE[@]}"; do
-      APP_FOUND_IN_SOURCE=false
-      for app_path_base in "${COMMON_APP_PATHS[@]}"; do
-        TARGET_DIR="$app_path_base/$app_name"
-        if [ -d "$TARGET_DIR" ]; then
-          echo "Removing "$TARGET_DIR" from ${img_file_name} before copying..."
-          sudo rm -rf "$TARGET_DIR"
-          APP_FOUND_IN_SOURCE=true
-          break # Found and removed, move to next app
-        fi
-      done
-      if ! $APP_FOUND_IN_SOURCE; then
-        echo "Warning: App folder '$app_name' not found in ${img_file_name}'s direct app/priv-app directories. Skipping for this image."
-      fi
-    done
-    echo "App deletion from ${img_file_name} complete."
-
-    echo "Copying contents from ${temp_mount_point}/ (modified ${img_file_name}) to ${final_destination_path}/ using rsync -a..."
-    sudo rsync -a "${temp_mount_point}/" "${final_destination_path}/"
+    echo "Copying contents from ${source_mount_point}/ to ${final_dest_path}/..."
+    sudo rsync -a "${source_mount_point}/" "${final_dest_path}/"
     if [ $? -ne 0 ]; then
-        echo "Error: Failed to copy contents from modified ${img_file_name} to ${FINAL_IMAGE_NAME}."
+        echo "Error: Failed to copy contents from ${source_img_file} to ${FINAL_IMAGE_NAME}."
         sync || true
-        sudo umount "${temp_mount_point}" || true
-        sudo losetup -d "${TEMP_LOOP_DEV}" || true
+        sudo umount "${source_mount_point}" || true
+        sudo losetup -d "${COPY_LOOP_DEV}" || true
         return 1
     fi
-    echo "Contents copied for ${img_file_name}."
+    echo "Contents copied for ${source_img_file}."
 
-    echo "Syncing data for ${temp_mount_point} before unmount..."
+    echo "Unmounting ${source_mount_point}..."
     sync
-    sudo umount "${temp_mount_point}"
-    echo "Unmounted ${temp_mount_point}."
-    sudo losetup -d "${TEMP_LOOP_DEV}"
-    echo "Detached loop device ${TEMP_LOOP_DEV}."
-    rmdir "${temp_mount_point}"
+    sudo umount "${source_mount_point}"
+    sudo losetup -d "${COPY_LOOP_DEV}"
+    rmdir "${source_mount_point}"
 
-    echo "--- Cleanup: Removing temporary writable image ${temp_writable_img} ---"
-    if [ -f "$temp_writable_img" ]; then
-        rm "$temp_writable_img"
-        echo "Removed $temp_writable_img."
-    fi
-    # It's safe to remove the original source image now that it has been processed and copied.
-    echo "--- Cleanup: Removing original source image ${source_img_path} ---"
-    if [ -f "$source_img_path" ]; then
-      rm "$source_img_path"
-      echo "Removed $source_img_path."
-    fi
-    echo "--- Cleanup Complete ---"
+    # Remove the modified source image file after its contents are copied to the final image
+    echo "Removing modified source image file: ${source_path}"
+    rm "$source_path"
+    echo "Removed ${source_path}."
 
     return 0
 }
 
+# Now, call the copy function for each modified source image
+copy_modified_source_to_final "system.img" "" || exit 1
+copy_modified_source_to_final "system_ext.img" "system_ext" || exit 1
+copy_modified_source_to_final "product.img" "product" || exit 1
+copy_modified_source_to_final "odm.img" "odm" || exit 1
 
-# Call the new processing function for each required partition
-# This will now create a writable temp copy, delete apps, then copy to final_system_mount
-process_and_copy_source_image "system.img" "" || exit 1
-process_and_copy_source_image "system_ext.img" "system_ext" || exit 1
-process_and_copy_source_image "product.img" "product" || exit 1
+if [ -f "firmware_images/opproduct.img" ]; then
+  copy_modified_source_to_final "opproduct.img" "opproduct" || exit 1
+else
+  echo "opproduct.img was not present or processed. Skipping its copy."
+fi
+
+# --- Cleanup 3: Remove the firmware_images directory after all images are copied ---
+echo "--- Cleanup: Removing firmware_images directory ---"
+if [ -d "firmware_images" ]; then
+  rm -rf firmware_images/
+  echo "Removed firmware_images/."
+fi
+echo "--- Cleanup Complete ---"
+
+echo "--- All base partitions copied to ${FINAL_IMAGE_NAME}. Applying further custom modifications... ---"
 
 
-echo "--- All base partitions (system, system_ext, product) copied. Applying specific modifications now... ---"
-
-# --- START: CUSTOM MODIFICATION STEPS (Moved to here as requested) ---
+# --- START: CUSTOM MODIFICATION STEPS (Directly on FINAL_MOUNT_POINT) ---
 
 # 2. Replace OPWallpaperResources.apk
 TARGET_APK_DIR="${FINAL_MOUNT_POINT}/system_ext/app/OPWallpaperResources"
@@ -401,7 +498,7 @@ echo "Attempting to remove unwanted apps from various partitions in the final im
 
 APPS_TO_REMOVE_GLOBAL=(
   "OnePlusCamera"
-  "Drive" 
+  "Drive"
   "Duo"
   "Gmail2"
   "Maps"
@@ -428,10 +525,10 @@ declare -a APP_PATHS_GLOBAL=(
   "${FINAL_MOUNT_POINT}/system_ext/app"
   "${FINAL_MOUNT_POINT}/system_ext/priv-app"
   "${FINAL_MOUNT_POINT}/reserve"
-  "${FINAL_MOUNT_POINT}/odm/app" # Added odm
-  "${FINAL_MOUNT_POINT}/odm/priv-app" # Added odm
-  "${FINAL_MOUNT_POINT}/opproduct/app" # Added opproduct
-  "${FINAL_MOUNT_POINT}/opproduct/priv-app" # Added opproduct
+  "${FINAL_MOUNT_POINT}/odm/app"
+  "${FINAL_MOUNT_POINT}/odm/priv-app"
+  "${FINAL_MOUNT_POINT}/opproduct/app"
+  "${FINAL_MOUNT_POINT}/opproduct/priv-app"
 )
 
 for app_name in "${APPS_TO_REMOVE_GLOBAL[@]}"; do
@@ -442,7 +539,7 @@ for app_name in "${APPS_TO_REMOVE_GLOBAL[@]}"; do
       echo "Removing "$TARGET_DIR" from final image..."
       sudo rm -rf "$TARGET_DIR"
       APP_FOUND_GLOBAL=true
-      break # Found and removed, move to next app
+      break
     fi
   done
   if ! $APP_FOUND_GLOBAL; then
@@ -454,28 +551,9 @@ echo "Unwanted apps removal attempt complete."
 
 # --- END: CUSTOM MODIFICATION STEPS ---
 
-echo "--- Continuing with remaining base partition copies and modifications... ---"
+echo "--- Continuing with remaining custom modifications... ---"
 
-# Call the new processing function for remaining partitions
-process_and_copy_source_image "odm.img" "odm" || exit 1
-
-if [ -f "firmware_images/opproduct.img" ]; then
-  process_and_copy_source_image "opproduct.img" "opproduct" || exit 1
-else
-  echo "opproduct.img not found in firmware_images. Skipping its processing."
-fi
-
-# --- Cleanup 5: Remove the firmware_images directory after all images are processed ---
-echo "--- Cleanup: Removing firmware_images directory ---"
-if [ -d "firmware_images" ]; then
-  rm -rf firmware_images/
-  echo "Removed firmware_images/."
-fi
-echo "--- Cleanup Complete ---"
-
-echo "--- All base partitions copied to ${FINAL_IMAGE_NAME}. Applying further custom modifications... ---"
-
-# 1. Create empty keylayout files (This step was already here and makes sense to keep here)
+# 1. Create empty keylayout files
 KEYLAYOUT_DIR="${FINAL_MOUNT_POINT}/usr/keylayout"
 sudo mkdir -p "$KEYLAYOUT_DIR"
 echo "Creating empty uinput-fpc.kl and uinput-goodix.kl..."
@@ -684,7 +762,7 @@ if [ -f "$OP_UTILS_FILE" ]; then
       :a
       n
       /    move-result v0\n\n    return v0/ {
-        s/\(    move-result v0\n\n\)    return v0/\1    const\/4 v0, 0x1\n\n    return v0/
+        s/\(    move-result v0\n\n\)    const\/4 v0, 0x1\n\n    return v0/
         b end_sed_block
       }
       ba
@@ -783,7 +861,7 @@ if command -v make_ext4fs &> /dev/null; then
   echo "   reserve_new.img created at "${GITHUB_WORKSPACE}/reserve_new.img""
 else
   echo "   Error: 'make_ext4fs' command not found. This tool is essential for creating the image."
-  echo "   Please ensure 'e2fsprogs' is installed. Aborting."
+  echo "   Please ensure 'android-sdk-build-tools' or 'android-sdk-platform-tools' is installed and its tools are in PATH. Aborting."
   exit 1
 fi
 sudo rm -rf "$NEW_RESERVE_WORKSPACE_DIR"
