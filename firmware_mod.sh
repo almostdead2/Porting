@@ -77,7 +77,7 @@ log_step "1" "Downloading OnePlus Firmware"
 FIRMWARE_ZIP=$(basename "$FIRMWARE_URL")
 if [[ ! -f "${FIRMWARE_DIR}/${FIRMWARE_ZIP}" ]]; then
     echo "Attempting to download firmware from: $FIRMWARE_URL"
-    wget -P "$FIRMWARE_DIR" "$FIRMWARE_URL"
+    wget --show-progress -P "$FIRMWARE_DIR" "$FIRMWARE_URL"
 else
     echo "Firmware already exists: ${FIRMWARE_DIR}/${FIRMWARE_ZIP}. Skipping download."
 fi
