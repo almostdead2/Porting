@@ -43,7 +43,7 @@ echo ""
 echo "--- Downloading OnePlus Firmware ---"
 FIRMWARE_FILENAME=$(basename "$FIRMWARE_URL")
 echo "Downloading firmware from: $FIRMWARE_URL"
-wget -q --show-progress "$FIRMWARE_URL" -O "$FIRMWARE_FILENAME"
+wget -q "$FIRMWARE_URL" -O "$FIRMWARE_FILENAME"
 if [ ! -f "$FIRMWARE_FILENAME" ]; then
   echo "Error: Firmware download failed."
   exit 1
