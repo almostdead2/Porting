@@ -29,6 +29,30 @@ PLUGIN_FILES_DIR="${ROM_ROOT}/plugin_files"
 MY_G2_FOR_SYSTEMUI_DIR="${ROM_ROOT}/my_G2/for_SystemUI"
 MY_G2_FOR_SETTINGS_DIR="${ROM_ROOT}/my_G2/for_Settings"
 
+# --- List of Unwanted Apps ---
+# Add the folder names of the applications you wish to remove.
+# These are typically found under /system/app, /system/priv-app, /system_ext/app, etc.
+# IMPORTANT: Be extremely careful! Removing essential system apps can break your ROM.
+UNWANTED_APPS=(
+    "OnePlusCamera"
+    "Drive"
+    "Duo"
+    "Gmail2"
+    "Maps"
+    "Music2"
+    "Photos"
+    "GooglePay"
+    "GoogleTTS"
+    "Videos"
+    "YouTube"
+    "HotwordEnrollmentOKGoogleWCD9340"
+    "HotwordEnrollmentXGoogleWCD9340"
+    "Velvet"
+    "By_3rd_PlayAutoInstallConfigOverSeas"
+    "OPBackup"
+    "OPForum"
+)
+
 # --- Helper function for mounting and unmounting ---
 # This function now accepts an optional 'read_only' parameter ("ro" for read-only, empty for read-write)
 # IMPORTANT: All informational echoes are now redirected to stderr (>&2)
@@ -233,11 +257,14 @@ SYSTEM_NEW_IMG_NAME="system_new.img"
 
 echo "Creating an empty EXT4 image file: "$SYSTEM_NEW_IMG_NAME" with size ${TARGET_SYSTEM_IMG_SIZE_BYTES} bytes."
 # Create an empty file first, then format it.
-dd if=/dev/zero of="$SYSTEM_NEW_IMG_NAME" bs=1 count=0 seek="$TARGET_SYSTEM_IMG_SIZE_BYTES"
+dd if=/dev/zero of="$SYSTEM_NEW_IMG_NAME" bs=1 count="$TARGET_SYSTEM_IMG_SIZE_BYTES"
 if [ $? -ne 0 ]; then echo "Error: Failed to create empty file for system_new.img."; exit 1; fi
 
 sudo mkfs.ext4 -L system "$SYSTEM_NEW_IMG_NAME"
 if [ $? -ne 0 ]; then echo "Error: Failed to format "$SYSTEM_NEW_IMG_NAME" as ext4."; exit 1; fi
+
+sudo tune2fs -c0 -i0 "$SYSTEM_NEW_IMG_NAME"
+if [ $? -ne 0 ]; then echo "Error: Failed to disable automatic filesystem checks for system_new.img."; exit 1; fi
 
 echo ""$SYSTEM_NEW_IMG_NAME" created."
 echo ""
@@ -360,6 +387,62 @@ else
   echo "Error: framework-res.apk not found at "$FRAMEWORK_APK". Cannot install framework. Ensure your ROM files are correctly extracted."
   exit 1
 fi
+echo ""
+
+# --- Step: Delete unwanted apps ---
+log_step 13 "Deleting unwanted apps" # Renumbered from 12
+
+if [ ${#UNWANTED_APPS[@]} -eq 0 ]; then
+    echo "No apps specified in UNWANTED_APPS list. Skipping app removal."
+else
+    echo "Starting removal of unwanted applications..."
+
+    APP_BASE_PATHS=(
+        "${SYSTEM_MOUNT_POINT}/system/app"
+        "${SYSTEM_MOUNT_POINT}/system/priv-app"
+        "${SYSTEM_MOUNT_POINT}/product/app"
+        "${SYSTEM_MOUNT_POINT}/product/priv-app"
+        "${SYSTEM_MOUNT_POINT}/system_ext/app"
+        "${SYSTEM_MOUNT_POINT}/system_ext/priv-app"
+        "${SYSTEM_MOUNT_POINT}/vendor/app" # Keeping as common location
+        "${SYSTEM_MOUNT_POINT}/vendor/priv-app" # Keeping as common location
+        "${SYSTEM_MOUNT_POINT}/odm/app" # Keeping as common location
+        "${SYSTEM_MOUNT_POINT}/odm/priv-app" # Keeping as common location
+        "${SYSTEM_MOUNT_POINT}/system/reserve" # Added as requested by user
+    )
+
+    APPS_REMOVED=0
+    for app_name in "${UNWANTED_APPS[@]}"; do
+        FOUND_AND_REMOVED=false
+        echo "  - Looking for app: "$app_name""
+        for base_path in "${APP_BASE_PATHS[@]}"; do
+            APP_PATH="${base_path}/${app_name}"
+            if [ -d "$APP_PATH" ]; then
+                echo "    -> Found at "$APP_PATH". Deleting..."
+                sudo rm -rf "$APP_PATH"
+                if [ $? -eq 0 ]; then
+                    echo "    -> Successfully removed "$app_name"."
+                    FOUND_AND_REMOVED=true
+                    APPS_REMOVED=$((APPS_REMOVED + 1))
+                else
+                    echo "    -> Failed to remove "$app_name" from "$base_path"."
+                fi
+                # We assume an app folder name is unique, so once found and removed, move to next app
+                break
+            fi
+        done
+        if [ "$FOUND_REMOVED" = false ]; then
+            echo "    -> Warning: App folder '"$app_name"' not found in any standard app location."
+        fi
+    done
+
+    if [ "$APPS_REMOVED" -eq 0 ]; then
+        echo "No unwanted apps were found or removed based on the defined list."
+    else
+        echo "Total "$APPS_REMOVED" unwanted app(s) removed."
+    fi
+fi
+echo "Unwanted apps removal complete."
 echo ""
 
 # --- Perform all modifications on the newly mounted system.img ---
