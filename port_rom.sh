@@ -37,7 +37,7 @@ mount_image_rw() {
   LOOP_DEV=$(sudo losetup -f --show "$img_path")
   if [ -z "$LOOP_DEV" ]; then echo "Error: Failed to assign loop device for $img_path."; return 1; fi
   echo "Loop device assigned: $LOOP_DEV"
-  sudo mount -t ext4 "$LOOP_DEV" "$mount_point"
+  mount -o ro "$LOOP_DEV" "$mount_point"
   if [ $? -ne 0 ]; then echo "Error: Failed to mount $img_path. Unmounting loop device."; sudo losetup -d "$LOOP_DEV"; return 1; fi
   echo "$img_path mounted to $mount_point."
   echo "$LOOP_DEV" # Return loop device by echoing it
@@ -206,16 +206,6 @@ sudo rm -f "$FIRMWARE_FILENAME" # This is the downloaded zip/archive
 sudo rm -rf firmware_extracted # Remove the extraction dir completely
 echo "Deleted downloaded firmware archive and firmware_extracted directory."
 echo ""
-
-log_step 6.1 "Checking system.img filesystem integrity"
-sudo fsck.ext4 -y firmware_images/system.img
-ls -l firmware_images/
-if [ $? -ne 0 ]; then
-  echo "Error: fsck.ext4 found issues with system.img. Attempted to repair."
-  # You might want to exit here if fsck.ext4 reports unfixable errors
-  # exit 1
-fi
-echo "Filesystem check complete."
 
 # --- Proposed Step 2: Mount system.img, delete unwanted apps, sync, umount ---
 log_step 7 "Mounting system.img, deleting unwanted apps, and unmounting"
