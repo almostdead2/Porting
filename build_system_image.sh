@@ -4,7 +4,7 @@
 set -e
 
 # --- Configuration Variables ---
-IMAGE_SIZE_BYTES=3221225472 # Target size for your new system.img (e.g., 3GB)
+IMAGE_SIZE_BYTES=3221225472 # Target size for your new system.img (e.g., 3GB) - Keeping original size as per request
 FINAL_IMAGE_NAME="system_new.img" # The name of the new image file
 FINAL_MOUNT_POINT="final_system_mount" # Temporary mount point for the new image
 
@@ -46,9 +46,9 @@ fi
 
 FIRMWARE_FILENAME=$(basename "$FIRMWARE_URL")
 echo "Downloading firmware from: $FIRMWARE_URL"
-# Use --show-progress without -q for cleaner output
-wget --show-progress --progress=bar:force "$FIRMWARE_URL" -O "$FIRMWARE_FILENAME"
-if [ ! -f "$FIRMWARE_FILENAME" ]; then
+# Using curl for cleaner progress bar output in CI/CD logs
+curl -L --progress-bar -o "$FIRMWARE_FILENAME" "$FIRMWARE_URL"
+if [ $? -ne 0 ]; then
   echo "Error: Firmware download failed."
   exit 1
 fi
@@ -308,9 +308,9 @@ echo "--- Cleanup Complete ---"
 
 echo "--- All base partitions copied to ${FINAL_IMAGE_NAME}. Applying custom modifications... ---"
 
-# --- Custom Modification Steps ---
+# --- CUSTOM MODIFICATION STEPS (Moved to here as requested) ---
 
-# 1. Create empty keylayout files
+# 1. Create empty keylayout files (This step was already here and makes sense to keep here)
 KEYLAYOUT_DIR="${FINAL_MOUNT_POINT}/usr/keylayout"
 sudo mkdir -p "$KEYLAYOUT_DIR"
 echo "Creating empty uinput-fpc.kl and uinput-goodix.kl..."
@@ -495,7 +495,7 @@ fi
 VOLUME_DIALOG_IMPL_FILE="$DECOMPILED_DIR/smali/com/android/systemui/volume/VolumeDialogImpl.smali"
 if [ -f "$VOLUME_DIALOG_IMPL_FILE" ]; then
   echo "Modifying VolumeDialogImpl.smali..."
-  sudo sed -i '/:cond_11/{n;s/    const\/4 p0, 0x0/    const\/4 p0, 0x1/}' "$VOLUME_DIALOG_IMPL_IMPL_FILE"
+  sudo sed -i '/:cond_11/{n;s/    const\/4 p0, 0x0/    const\/4 p0, 0x1/}' "$VOLUME_DIALOG_IMPL_FILE"
 else
   echo "Warning: VolumeDialogImpl.smali not found. Skipping modification."
 fi
