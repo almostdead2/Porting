@@ -3,6 +3,16 @@
 # Exit immediately if a command exits with a non-zero status.
 set -e
 
+# --- Functions ---
+
+log_step() {
+    echo ""
+    echo "==================================================================="
+    echo "STEP $1: $2"
+    echo "==================================================================="
+    echo ""
+}
+
 # --- Workflow Inputs (passed as environment variables from the YAML) ---
 FIRMWARE_URL="$1"
 if [ -z "$FIRMWARE_URL" ]; then
@@ -32,7 +42,7 @@ sudo apt install -y e2fsprogs
 pip install protobuf
 
 wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O apktool
-wget https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar -O apktool.jar
+wget -q https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar -O apktool.jar
 chmod +x apktool apktool.jar
 sudo mv apktool /usr/local/bin/
 sudo mv apktool.jar /usr/local/bin/
