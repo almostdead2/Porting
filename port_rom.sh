@@ -37,7 +37,7 @@ mount_image_rw() {
   LOOP_DEV=$(sudo losetup -f --show "$img_path")
   if [ -z "$LOOP_DEV" ]; then echo "Error: Failed to assign loop device for $img_path."; return 1; fi
   echo "Loop device assigned: $LOOP_DEV"
-  sudo mount -o ro "$LOOP_DEV" "$mount_point"
+  sudo mount -o loop "$LOOP_DEV" "$mount_point"
   if [ $? -ne 0 ]; then echo "Error: Failed to mount $img_path. Unmounting loop device."; sudo losetup -d "$LOOP_DEV"; return 1; fi
   echo "$img_path mounted to $mount_point."
   echo "$LOOP_DEV" # Return loop device by echoing it
