@@ -207,6 +207,15 @@ sudo rm -rf firmware_extracted # Remove the extraction dir completely
 echo "Deleted downloaded firmware archive and firmware_extracted directory."
 echo ""
 
+log_step 6.1 "Checking system.img filesystem integrity"
+sudo fsck.ext4 -y "$SYSTEM_IMG_PATH"
+if [ $? -ne 0 ]; then
+  echo "Error: fsck.ext4 found issues with system.img. Attempted to repair."
+  # You might want to exit here if fsck.ext4 reports unfixable errors
+  # exit 1
+fi
+echo "Filesystem check complete."
+
 # --- Proposed Step 2: Mount system.img, delete unwanted apps, sync, umount ---
 log_step 7 "Mounting system.img, deleting unwanted apps, and unmounting"
 
