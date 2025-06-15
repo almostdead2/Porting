@@ -100,7 +100,7 @@ if [[ ! -f "$PAYLOAD_DUMPER_SCRIPT" ]]; then
 fi
 
 # Execute payload_dumper.py directly
-python3 "$PAYLOAD_DUMPER_SCRIPT" "$FIRMWARE_DIR/$PAYLOAD_BIN" -out "$OUTPUT_DIR"
+python3 "$PAYLOAD_DUMPER_SCRIPT" "$FIRMWARE_DIR/$PAYLOAD_BIN"
 if [[ $? -ne 0 ]]; then
     echo "Error: Failed to extract payload.bin using payload_dumper. Make sure Python dependencies are met."
     exit 1
