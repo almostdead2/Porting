@@ -47,20 +47,6 @@ log_step() {
     echo ""
 }
 
-cleanup_mounts() {
-    echo "Cleaning up any remaining mounts..."
-    # Using 'grep -q' to check if mounted before attempting to unmount
-    sudo umount "${MOUNT_DIR}/system_new" 2>/dev/null || true
-    sudo umount "${MOUNT_DIR}/system" 2>/dev/null || true
-    sudo umount "${MOUNT_DIR}/system_ext" 2>/dev/null || true
-    sudo umount "${MOUNT_DIR}/product" 2>/dev/null || true
-    sudo umount "${MOUNT_DIR}/odm" 2>/dev/null || true # For optional odm.img
-    sudo umount "${MOUNT_DIR}/opproduct" 2>/dev/null || true # For optional opproduct.img
-}
-
-# Ensure mount points are clean on script exit (even if errors occur)
-trap cleanup_mounts EXIT
-
 # --- Main Script ---
 
 # Check if FIRMWARE_URL is provided (it should come from the .yml workflow input)
@@ -77,7 +63,7 @@ log_step "1" "Downloading OnePlus Firmware"
 FIRMWARE_ZIP=$(basename "$FIRMWARE_URL")
 if [[ ! -f "${FIRMWARE_DIR}/${FIRMWARE_ZIP}" ]]; then
     echo "Attempting to download firmware from: $FIRMWARE_URL"
-    wget --progress=bar:force "$FIRMWARE_DIR" "$FIRMWARE_URL"
+    wget -P "$FIRMWARE_DIR" "$FIRMWARE_URL"
 else
     echo "Firmware already exists: ${FIRMWARE_DIR}/${FIRMWARE_ZIP}. Skipping download."
 fi
