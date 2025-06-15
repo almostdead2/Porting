@@ -1,116 +1,48 @@
-name: Android ROM Porting
+name: OnePlus Firmware Modification
 
 on:
   workflow_dispatch:
     inputs:
       firmware_url:
-        description: 'Direct URL to the OnePlus Firmware ZIP file'
+        description: 'URL of the OnePlus firmware (e.g., direct download link to .zip)'
         required: true
-        default: 'https://example.com/your_oneplus_firmware.zip'
+        default: ''
 
 jobs:
-  port_rom:
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 300
-    permissions:
-      contents: write
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+    - name: Checkout main repository
+      uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
 
-      - name: Make Build Script Executable and Run
-        run: |
-          export FIRMWARE_URL="${{ github.event.inputs.firmware_url }}"
-          chmod +x ./build_system_image.sh
-          ./build_system_image.sh
-        env:
-          GITHUB_WORKSPACE: ${{ github.workspace }}
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y wget unzip e2fsprogs rsync
 
-      - name: Rename Reserve Image
-        run: |
-          OLD_IMG_PATH="${{ github.workspace }}/reserve_new.img"
-          NEW_IMG_PATH="${{ github.workspace }}/reserve.img"
-          
-          echo "Renaming $OLD_IMG_PATH to $NEW_IMG_PATH..."
-          if [ -f "$OLD_IMG_PATH" ]; then
-            sudo mv "$OLD_IMG_PATH" "$NEW_IMG_PATH"
-            echo "Image successfully renamed."
-          else
-            echo "Error: $OLD_IMG_PATH not found for renaming. Ensure the previous script created it correctly."
-            exit 1
-          fi
+    - name: Clone payload_dumper
+      run: |
+        git clone https://github.com/vm03/payload_dumper.git
+        pip install -r payload_dumper/requirements.txt || echo "No requirements.txt or dependencies already met."
 
-      - name: Convert system.img to system.new.dat.br, system.transfer.list
-        run: |
-          echo "Cloning img2sdat tools..."
-          git clone https://github.com/IsHacker003/img2sdat.git --depth=1 img2sdat_tools
-          if [ ! -d "img2sdat_tools" ]; then echo "Failed to clone img2sdat tools."; exit 1; fi
+    - name: Make script executable
+      run: chmod +x firmware_mod.sh
 
-          echo "Converting system_new.img to system.new.dat, system.patch.dat and system.transfer.list..."
-          python3 img2sdat_tools/img2sdat.py system_new.img -o test -v 4
-          if [ $? -ne 0 ]; then echo "img2sdat.py failed."; exit 1; fi
+    - name: Run Firmware Modification Script
+      run: |
+        ./firmware_mod.sh
+      env:
+        FIRMWARE_URL: ${{ github.event.inputs.firmware_url }}
 
-          echo "Compressing system.new.dat to system.new.dat.br..."
-          brotli -q 11 test/system.new.dat -o test/system.new.dat.br
-          if [ $? -ne 0 ]; then echo "Brotli compression failed."; exit 1; fi
-          rm test/system.new.dat
-
-          echo "Generated system.new.dat.br and system.transfer.list."
-
-      - name: Zip Final Files for Release
-        run: |
-          BUILD_DATE=$(date +%Y%m%d)
-          ROM_FILENAME="OnePlus-Port-ROM-$BUILD_DATE.zip"
-          RESERVE_IMG_PATH="${{ github.workspace }}/reserve.img"
-          mkdir -p test
-          zip -j "$ROM_FILENAME" test/system.new.dat.br test/system.patch.dat test/system.transfer.list "$RESERVE_IMG_PATH"
-          if [ $? -ne 0 ]; then echo "Zipping failed."; exit 1; fi
-          echo "ROM_FILENAME=$ROM_FILENAME" >> "$GITHUB_ENV"
-          echo "$ROM_FILENAME created."
-
-      - name: Prepare Release Tag Name
-        id: set_release_tag
-        run: |
-          ROM_BASE_NAME=$(basename "${{ env.ROM_FILENAME }}" .zip)
-          RELEASE_TAG="release-${ROM_BASE_NAME}-$(date +%Y%m%d%H%M%S)-${{ github.run_number }}"
-          echo "Generated tag: "$RELEASE_TAG"..."
-          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
-          echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          files: ${{ env.ROM_FILENAME }}
-          tag_name: ${{ steps.set_release_tag.outputs.release_tag }}
-          name: Manual Port ROM Release - ${{ env.ROM_FILENAME }}
-          body: |
-            OnePlus OEM ROM Port - ${{ env.ROM_FILENAME }}
-
-            This release contains the ported ROM for your device.
-            This build was automatically generated.
-
-            Changes included:
-            - Custom build.prop modifications
-            - `services.jar` patched for build consistency check bypass
-            - Unwanted apps removed
-            - Custom `init` binary (if provided)
-            - System partition merged and re-imaged
-            - Empty keylayout files created
-            - Reserve partition re-imaged and symlinked
-
-            Flash at your own risk.
-
-      - name: Clean Up Workspace
-        if: always()
-        run: |
-          echo "Cleaning up workspace..."
-          sudo rm -rf firmware_extracted output payload_dumper *.zip *.rar *.7z *.img img2sdat_tools test/ build_system_image.sh
-          echo "Cleanup complete."
+    - name: Upload Modified Firmware (system_new.img)
+      uses: actions/upload-artifact@v4
+      with:
+        name: modified-firmware
+        path: output/system_new.img
+        retention-days: 7
