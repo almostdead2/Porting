@@ -121,7 +121,7 @@ fi
 
   # --- Cleanup 2: Remove payload.bin and payload_dumper directory after use ---
   echo "--- Cleanup: Removing payload.bin and payload_dumper directory ---"
-  if [ -f "firmware_extracted/payload.bin" ]; then
+if [ -f "firmware_extracted/payload.bin" ]; then
     rm "firmware_extracted/payload.bin"
     echo "Removed firmware_extracted/payload.bin."
   fi
@@ -129,9 +129,9 @@ fi
     rm -rf "$PAYLOAD_DUMPER_DIR"
     echo "Removed payload_dumper directory."
   fi
-  echo "--- Cleanup Complete ---"
+    echo "--- Cleanup Complete ---"
 else
-  echo "payload.bin not found. Proceeding with direct image files from extracted firmware (if any)."
+    echo "payload.bin not found. Proceeding with direct image files from extracted firmware (if any)."
 fi
 
 REQUIRED_IMAGES=("system.img" "product.img" "system_ext.img" "odm.img" "vendor.img" "boot.img")
