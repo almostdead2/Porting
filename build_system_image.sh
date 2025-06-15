@@ -47,7 +47,7 @@ fi
 FIRMWARE_FILENAME=$(basename "$FIRMWARE_URL")
 echo "Downloading firmware from: $FIRMWARE_URL"
 # Using curl for cleaner progress bar output in CI/CD logs
-curl -L --progress-bar -o "$FIRMWARE_FILENAME" "$FIRMWARE_URL"
+curl -L -o "$FIRMWARE_FILENAME" "$FIRMWARE_URL" 2>&1 | grep -E '^  [0-9]{1,3}' | awk '{printf "Downloaded %d%%\n", $1}'
 if [ $? -ne 0 ]; then
   echo "Error: Firmware download failed."
   exit 1
