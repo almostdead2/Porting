@@ -27,7 +27,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt update
-          sudo apt install -y unace unrar zip unzip p7zip-full liblz4-tool brotli default-jre
+          sudo apt install -y unace unrar zip unzip p7zip-full liblz4-tool brotli default-jre rsync
           sudo apt install -y libarchive-tools
           sudo apt install -y android-sdk-libsparse-utils
           sudo apt install -y e2fsprogs
@@ -155,66 +155,121 @@ jobs:
             exit 1
           fi
 
-      - name: Extract system, system_ext, product, odm, opproduct images (Mounting)
+      - name: Create, Populate, and Finalize system_new.img
         run: |
-          extract_image_via_mount() {
-            local img_file="$1"
-            local target_dir="$2"
-            local mount_point="${target_dir}_mount"
+          IMAGE_SIZE_BYTES=3221225472
+          FINAL_IMAGE_NAME="system_new.img"
+          FINAL_MOUNT_POINT="final_system_mount"
 
-            echo "Mounting and extracting $img_file to $target_dir/..."
-            mkdir -p "$mount_point"
+          echo "--- Starting Image Creation Process ---"
 
-            if [ ! -f "firmware_images/$img_file" ]; then
-              echo "Warning: Image file firmware_images/$img_file not found. Skipping extraction for this image."
+          echo "Creating empty ${FINAL_IMAGE_NAME} with size ${IMAGE_SIZE_BYTES} bytes..."
+          truncate -s ${IMAGE_SIZE_BYTES} "${FINAL_IMAGE_NAME}"
+          if [ $? -ne 0 ]; then echo "Error: Failed to create ${FINAL_IMAGE_NAME} file."; exit 1; fi
+          echo "File created."
+
+          echo "Formatting ${FINAL_IMAGE_NAME} as ext4 filesystem..."
+          mkfs.ext4 -F -b 4096 "${FINAL_IMAGE_NAME}"
+          if [ $? -ne 0 ]; then echo "Error: Failed to format ${FINAL_IMAGE_NAME} as ext4."; exit 1; fi
+          echo "${FINAL_IMAGE_NAME} formatted as ext4."
+
+          echo "Disabling automatic filesystem checks (fsck) for ${FINAL_IMAGE_NAME}..."
+          tune2fs -c0 -i0 "${FINAL_IMAGE_NAME}"
+          if [ $? -ne 0 ]; then echo "Error: Failed to tune filesystem parameters."; exit 1; fi
+          echo "Automatic fsck disabled."
+
+          echo "Mounting ${FINAL_IMAGE_NAME} to ${FINAL_MOUNT_POINT}/ in read/write mode..."
+          mkdir -p "${FINAL_MOUNT_POINT}"
+
+          FINAL_LOOP_DEV=$(sudo losetup -f --show "${FINAL_IMAGE_NAME}")
+          if [ -z "$FINAL_LOOP_DEV" ]; then
+            echo "Error: Failed to assign loop device for ${FINAL_IMAGE_NAME}."
+            exit 1
+          fi
+          echo "Loop device assigned for ${FINAL_IMAGE_NAME}: ${FINAL_LOOP_DEV}"
+
+          sudo mount -t ext4 -o rw "${FINAL_LOOP_DEV}" "${FINAL_MOUNT_POINT}"
+          if [ $? -ne 0 ]; then
+            echo "Error: Failed to mount ${FINAL_IMAGE_NAME} in RW mode. Attempting to detach loop device."
+            sudo losetup -d "${FINAL_LOOP_DEV}" || true
+            exit 1
+          fi
+          echo "Mounted ${FINAL_IMAGE_NAME} to ${FINAL_MOUNT_POINT}/."
+
+          copy_from_source_to_final() {
+            local img_file_name="$1"       
+            local destination_subdir="$2"
+            local source_mount_point="${img_file_name}_source_mount"
+            local source_img_path="firmware_images/${img_file_name}"
+
+            echo "--- Processing ${img_file_name} ---"
+
+            if [ ! -f "$source_img_path" ]; then
+              echo "Warning: Source image file ${source_img_path} not found. Skipping extraction for this image."
               return 0
             fi
 
-            LOOP_DEV=$(sudo losetup -f --show "firmware_images/$img_file")
-            if [ -z "$LOOP_DEV" ]; then
-              echo "Error: Failed to assign loop device for $img_file."
+            mkdir -p "$source_mount_point"
+
+            SOURCE_LOOP_DEV=$(sudo losetup -f --show "$source_img_path")
+            if [ -z "$SOURCE_LOOP_DEV" ]; then
+              echo "Error: Failed to assign loop device for ${source_img_path}."
               return 1
             fi
-            echo "Loop device assigned for $img_file: $LOOP_DEV"
+            echo "Loop device assigned for ${source_img_path}: ${SOURCE_LOOP_DEV}"
 
-            sudo mount -t ext4 -o ro "$LOOP_DEV" "$mount_point"
+            sudo mount -t ext4 -o ro "${SOURCE_LOOP_DEV}" "${source_mount_point}"
             if [ $? -ne 0 ]; then
-              echo "Error: Failed to mount $img_file. Trying to detach loop device."
-              sudo losetup -d "$LOOP_DEV"
+              echo "Error: Failed to mount ${source_img_path}. Attempting to detach loop device."
+              sudo losetup -d "${SOURCE_LOOP_DEV}" || true
               return 1
             fi
-            echo "Mounted $img_file to $mount_point/."
+            echo "Mounted ${source_img_path} to ${source_mount_point}/."
 
-            mkdir -p "$target_dir"
-            
-            echo "Copying contents from $mount_point/ to $target_dir/..."
-            sudo cp -a "$mount_point/." "$target_dir/"
+            local full_destination_path="${FINAL_MOUNT_POINT}/${destination_subdir}"
+            mkdir -p "${full_destination_path}"
+
+            echo "Copying contents from ${source_mount_point}/ to ${full_destination_path}/ using rsync -a..."
+            sudo rsync -a "${source_mount_point}/" "${full_destination_path}/"
             if [ $? -ne 0 ]; then
-              echo "Error: Failed to copy contents from $img_file."
-              sudo umount "$mount_point"
-              sudo losetup -d "$LOOP_DEV"
+              echo "Error: Failed to copy contents from ${source_img_path} to ${FINAL_IMAGE_NAME}."
+              sync || true
+              sudo umount "${source_mount_point}" || true
+              sudo losetup -d "${SOURCE_LOOP_DEV}" || true
               return 1
             fi
+            echo "Contents copied for ${img_file_name}."
 
-            sudo umount "$mount_point"
-            echo "Unmounted $mount_point."
-            sudo losetup -d "$LOOP_DEV"
-            echo "Detached loop device $LOOP_DEV."
-            rmdir "$mount_point"
-            echo "Successfully extracted $img_file."
+            echo "Syncing data for ${source_mount_point} before unmount..."
+            sync
+            sudo umount "${source_mount_point}"
+            echo "Unmounted ${source_mount_point}."
+            sudo losetup -d "${SOURCE_LOOP_DEV}"
+            echo "Detached loop device ${SOURCE_LOOP_DEV}."
+            rmdir "${source_mount_point}"
             return 0
           }
 
-          extract_image_via_mount "system.img" "system" || exit 1
-          extract_image_via_mount "system_ext.img" "system_ext" || exit 1
-          extract_image_via_mount "product.img" "product" || exit 1
-          extract_image_via_mount "odm.img" "odm" || exit 1
+          copy_from_source_to_final "system.img" "" || exit 1
+          copy_from_source_to_final "system_ext.img" "system_ext" || exit 1
+          copy_from_source_to_final "product.img" "product" || exit 1
+          copy_from_source_to_final "odm.img" "odm" || exit 1
 
           if [ -f "firmware_images/opproduct.img" ]; then
-            extract_image_via_mount "opproduct.img" "opproduct" || exit 1
+            copy_from_source_to_final "opproduct.img" "opproduct" || exit 1
           else
-            echo "opproduct.img not found. Skipping extraction."
+            echo "opproduct.img not found in firmware_images. Skipping its processing."
           fi
+
+          echo "--- Finalizing ${FINAL_IMAGE_NAME} ---"
+          echo "Syncing data for ${FINAL_MOUNT_POINT} before unmount..."
+          sync
+          sudo umount "${FINAL_MOUNT_POINT}"
+          echo "Unmounted ${FINAL_MOUNT_POINT}."
+          sudo losetup -d "${FINAL_LOOP_DEV}"
+          echo "Detached loop device ${FINAL_LOOP_DEV}."
+          rmdir "${FINAL_MOUNT_POINT}"
+          echo "Successfully populated and unmounted ${FINAL_IMAGE_NAME}."
 
       - name: Clean Apktool Framework Directory
         run: |
@@ -238,20 +293,6 @@ jobs:
             echo "Error: framework-res.apk not found at $FRAMEWORK_APK. Cannot install framework. Ensure your ROM files are correctly extracted."
             exit 1
           fi
-
-      - name: Merge System Partitions
-        run: |
-          echo "Copying system_ext/ contents to system/system_ext..."
-          mkdir -p system/system_ext
-          sudo cp -a system_ext/. system/system_ext/
-          if [ $? -ne 0 ]; then echo "Copy system_ext failed"; exit 1; fi
-
-          echo "Copying product/ contents to system/product..."
-          mkdir -p system/product
-          sudo cp -a product/. system/product/
-          if [ $? -ne 0 ]; then echo "Copy product failed"; exit 1; fi
-
-          echo "All partition contents merged into system/."
 
       - name: Replace init Binary (from repo)
         run: |
@@ -839,35 +880,6 @@ jobs:
           echo "system.img created. Size:"
           ls -lh firmware_images/system.img
           ls -l firmware_images/system.img | awk '{print $5 " bytes"}'
-
-      - name: Generate Detailed File Attribute Logs
-        run: |
-          ROM_ROOT="${{ github.workspace }}"
-          cd "$ROM_ROOT" 
-
-          echo "Starting to generate file attribute logs..."
-
-          SELINUX_OUTPUT_FILE="selinux_contexts.txt"
-          PERMISSIONS_OUTPUT_FILE="file_permissions.txt"
-
-          echo "Generating SELinux contexts to $SELINUX_OUTPUT_FILE..."
-          sudo find system/ -exec ls -dZ {} + | awk '{print $1, $NF}' > "$SELINUX_OUTPUT_FILE"
-          echo "SELinux contexts saved."
-
-          echo "Generating standard permissions, UID, and GID to $PERMISSIONS_OUTPUT_FILE..."
-          sudo find system/ -print0 | sudo xargs -0 -I{} stat -c "%n %u %g %a" "{}" > "$PERMISSIONS_OUTPUT_FILE"
-          echo "Standard permissions saved."
-
-          echo "Finished generating file attribute logs."
-
-      - name: Upload Attribute Logs as Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: rom-file-attributes
-          path: |
-            ${{ github.workspace }}/selinux_contexts.txt
-            ${{ github.workspace }}/file_permissions.txt
-          retention-days: 7
 
       - name: Clean Up needed for space
         run: |
