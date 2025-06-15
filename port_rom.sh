@@ -1,0 +1,908 @@
+#!/bin/bash
+
+# Exit immediately if a command exits with a non-zero status.
+set -e
+
+# --- Workflow Inputs (passed as environment variables from the YAML) ---
+FIRMWARE_URL="$1"
+if [ -z "$FIRMWARE_URL" ]; then
+  echo "Error: Firmware URL is required. Usage: $0 <firmware_url>"
+  exit 1
+fi
+
+echo "Starting Android ROM Porting script..."
+
+# --- Setup Paths ---
+ROM_ROOT="$(pwd)" # Current working directory will be the repository root
+PAYLOAD_DUMPER_DIR="payload_dumper"
+MY_INIT_FILES_DIR="${ROM_ROOT}/my_init_files"
+FOR_OPWALLPAPER_RESOURCES_DIR="${ROM_ROOT}/for_OPWallpaperResources"
+PLUGIN_FILES_DIR="${ROM_ROOT}/plugin_files"
+MY_G2_FOR_SYSTEMUI_DIR="${ROM_ROOT}/my_G2/for_SystemUI"
+MY_G2_FOR_SETTINGS_DIR="${ROM_ROOT}/my_G2/for_Settings"
+
+# --- Step: Install Dependencies ---
+echo "--- Installing Dependencies ---"
+sudo apt update
+sudo apt install -y unace unrar zip unzip p7zip-full liblz4-tool brotli default-jre
+sudo apt install -y libarchive-tools
+sudo apt install -y android-sdk-libsparse-utils
+sudo apt install -y e2fsprogs
+
+pip install protobuf
+
+wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O apktool
+wget https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar -O apktool.jar
+chmod +x apktool apktool.jar
+sudo mv apktool /usr/local/bin/
+sudo mv apktool.jar /usr/local/bin/
+echo "Apktool installed successfully."
+echo ""
+
+# --- Step: Download OnePlus Firmware ---
+echo "--- Downloading OnePlus Firmware ---"
+FIRMWARE_FILENAME=$(basename "$FIRMWARE_URL")
+echo "Downloading firmware from: $FIRMWARE_URL"
+wget -q --show-progress "$FIRMWARE_URL" -O "$FIRMWARE_FILENAME"
+if [ ! -f "$FIRMWARE_FILENAME" ]; then
+  echo "Error: Firmware download failed."
+  exit 1
+fi
+echo "Downloaded firmware: $FIRMWARE_FILENAME"
+echo ""
+
+# --- Step: Extract Firmware ---
+echo "--- Extracting Firmware ---"
+mkdir -p firmware_extracted
+echo "Extracting $FIRMWARE_FILENAME..."
+if [[ "$FIRMWARE_FILENAME" == *.zip ]]; then
+  unzip -q "$FIRMWARE_FILENAME" -d firmware_extracted/
+elif [[ "$FIRMWARE_FILENAME" == *.rar ]]; then
+  unrar x "$FIRMWARE_FILENAME" firmware_extracted/
+elif [[ "$FIRMWARE_FILENAME" == *.7z ]]; then
+  7z x "$FIRMWARE_FILENAME" -o firmware_extracted/
+else
+  echo "Error: Unsupported firmware archive format."
+  exit 1
+fi
+
+if [ ! -d "firmware_extracted" ] || [ -z "$(ls -A firmware_extracted)" ]; then
+    echo "Error: Firmware extraction failed or directory is empty."
+    exit 1
+fi
+echo "Firmware extracted to firmware_extracted/"
+echo ""
+
+# --- Step: Extract Images from payload.bin (if present) ---
+echo "--- Extracting Images from payload.bin (if present) ---"
+if [ -f firmware_extracted/payload.bin ]; then
+  echo "payload.bin found. Extracting images using payload_dumper.py from vm03/payload_dumper.git..."
+
+  echo "Cloning https://github.com/vm03/payload_dumper.git into $PAYLOAD_DUMPER_DIR..."
+  git clone https://github.com/vm03/payload_dumper.git "$PAYLOAD_DUMPER_DIR"
+  if [ ! -d "$PAYLOAD_DUMPER_DIR" ]; then
+    echo "Error: Failed to clone vm03/payload_dumper repository."
+    exit 1
+  fi
+
+  if [ -f "$PAYLOAD_DUMPER_DIR/requirements.txt" ]; then
+    echo "Installing payload_dumper requirements from $PAYLOAD_DUMPER_DIR/requirements.txt..."
+    python3 -m pip install -r "$PAYLOAD_DUMPER_DIR/requirements.txt"
+    if [ $? -ne 0 ]; then
+      echo "Error: Failed to install payload_dumper requirements."
+      rm -rf "$PAYLOAD_DUMPER_DIR"
+      exit 1
+    fi
+  else
+    echo "Warning: No requirements.txt found in $PAYLOAD_DUMPER_DIR. Skipping pip install for this repo."
+  fi
+
+  echo "Running payload_dumper.py from $PAYLOAD_DUMPER_DIR/payload_dumper.py..."
+  python3 "$PAYLOAD_DUMPER_DIR/payload_dumper.py" firmware_extracted/payload.bin
+  
+  if [ $? -ne 0 ]; then
+      echo "Error: payload_dumper.py failed to extract images."
+      rm -rf "$PAYLOAD_DUMPER_DIR"
+      exit 1
+  fi
+  
+  echo "Images extracted from payload.bin to firmware_extracted/extracted_payload"
+  rm -rf "$PAYLOAD_DUMPER_DIR"
+else
+  echo "payload.bin not found. Proceeding with direct image files."
+fi
+echo ""
+
+# --- Step: Consolidate and Select Required Images ---
+echo "--- Consolidating and Selecting Required Images ---"
+REQUIRED_IMAGES=("system.img" "product.img" "system_ext.img" "odm.img" "vendor.img" "boot.img")
+OPTIONAL_IMAGES=("opproduct.img")
+ALL_IMAGES_FOUND=true
+TARGET_DIR="firmware_images"
+mkdir -p "$TARGET_DIR"
+
+for img in "${REQUIRED_IMAGES[@]}"; do
+  if [ -f "/home/runner/work/Porting/Porting/output/$img" ]; then
+    echo "Found $img"
+    mv "/home/runner/work/Porting/Porting/output/$img" "$TARGET_DIR/"
+  else
+    echo "Warning: Required image $img not found."
+    ALL_IMAGES_FOUND=false
+  fi
+done
+
+for img in "${OPTIONAL_IMAGES[@]}"; do
+  if [ -f "/home/runner/work/Porting/Porting/output/$img" ]; then
+    echo "Found optional image $img"
+    mv "/home/runner/work/Porting/Porting/output/$img" "$TARGET_DIR/"
+  else
+    echo "Optional image $img not found."
+  fi
+done
+
+rm -rf firmware_extracted/*
+echo "Only required and optional images moved to $TARGET_DIR/. Others deleted."
+
+if ! $ALL_IMAGES_FOUND; then
+  echo "Error: One or more required images were not found. Exiting."
+  exit 1
+fi
+echo ""
+
+# --- Step: Extract system, system_ext, product, odm, opproduct images (Mounting) ---
+echo "--- Extracting system, system_ext, product, odm, opproduct images (Mounting) ---"
+extract_image_via_mount() {
+  local img_file="$1"
+  local target_dir="$2"
+  local mount_point="${target_dir}_mount"
+
+  echo "Mounting and extracting $img_file to $target_dir/..."
+  mkdir -p "$mount_point"
+
+  if [ ! -f "firmware_images/$img_file" ]; then
+    echo "Warning: Image file firmware_images/$img_file not found. Skipping extraction for this image."
+    return 0
+  fi
+
+  LOOP_DEV=$(sudo losetup -f --show "firmware_images/$img_file")
+  if [ -z "$LOOP_DEV" ]; then
+    echo "Error: Failed to assign loop device for $img_file."
+    return 1
+  fi
+  echo "Loop device assigned for $img_file: $LOOP_DEV"
+
+  sudo mount -t ext4 -o ro "$LOOP_DEV" "$mount_point"
+  if [ $? -ne 0 ]; then
+    echo "Error: Failed to mount $img_file. Trying to detach loop device."
+    sudo losetup -d "$LOOP_DEV"
+    return 1
+  fi
+  echo "Mounted $img_file to $mount_point/."
+
+  mkdir -p "$target_dir"
+  
+  echo "Copying contents from $mount_point/ to $target_dir/..."
+  sudo cp -a "$mount_point/." "$target_dir/"
+  if [ $? -ne 0 ]; then
+    echo "Error: Failed to copy contents from $img_file."
+    sudo umount "$mount_point"
+    sudo losetup -d "$LOOP_DEV"
+    return 1
+  fi
+
+  sudo umount "$mount_point"
+  echo "Unmounted $mount_point."
+  sudo losetup -d "$LOOP_DEV"
+  echo "Detached loop device $LOOP_DEV."
+  rmdir "$mount_point"
+  echo "Successfully extracted $img_file."
+  return 0
+}
+
+extract_image_via_mount "system.img" "system" || exit 1
+extract_image_via_mount "system_ext.img" "system_ext" || exit 1
+extract_image_via_mount "product.img" "product" || exit 1
+extract_image_via_mount "odm.img" "odm" || exit 1
+
+if [ -f "firmware_images/opproduct.img" ]; then
+  extract_image_via_mount "opproduct.img" "opproduct" || exit 1
+else
+  echo "opproduct.img not found. Skipping extraction."
+fi
+echo ""
+
+# --- Step: Clean Apktool Framework Directory ---
+echo "--- Cleaning Apktool Framework Directory ---"
+echo "Emptying Apktool framework directory to ensure a clean slate..."
+sudo apktool empty-framework-dir
+if [ $? -eq 0 ]; then
+  echo "Apktool framework directory cleared successfully."
+else
+  echo "Warning: apktool empty-framework-dir command completed with a non-zero exit code. This might indicate nothing was there to clean, or a minor issue. Proceeding."
+fi
+echo ""
+
+# --- Step: Install Apktool Frameworks ---
+echo "--- Installing Apktool Frameworks ---"
+FRAMEWORK_APK="system/system/framework/framework-res.apk"
+if [ -f "$FRAMEWORK_APK" ]; then
+  sudo apktool if "$FRAMEWORK_APK"
+  if [ $? -ne 0 ]; then echo "Apktool framework installation failed! Check framework-res.apk path and file integrity."; exit 1; fi
+  echo "Apktool framework installed successfully."
+else
+  echo "Error: framework-res.apk not found at $FRAMEWORK_APK. Cannot install framework. Ensure your ROM files are correctly extracted."
+  exit 1
+fi
+echo ""
+
+# --- Step: Merge System Partitions ---
+echo "--- Merging System Partitions ---"
+echo "Copying system_ext/ contents to system/system_ext..."
+mkdir -p system/system_ext
+sudo cp -r system_ext/* system/system_ext/
+if [ $? -ne 0 ]; then echo "Copy system_ext failed"; exit 1; fi
+
+echo "Copying product/ contents to system/product..."
+mkdir -p system/product
+sudo cp -r product/* system/product/
+if [ $? -ne 0 ]; then echo "Copy product failed"; exit 1; fi
+
+echo "All partition contents merged into system/."
+echo ""
+
+# --- Step: Replace init Binary (from repo) ---
+echo "--- Replacing init Binary (from repo) ---"
+SOURCE_INIT_PATH="${MY_INIT_FILES_DIR}/init"
+INIT_TARGET_PATH="system/system/bin/init"
+
+if [ ! -f "$SOURCE_INIT_PATH" ]; then
+  echo "Warning: Custom init binary not found at $SOURCE_INIT_PATH."
+  echo "Skipping init replacement. If you intended to replace init, please place your 'init' file in the 'my_init_files' directory in your repository root."
+else
+  echo "Custom init binary found at $SOURCE_INIT_PATH."
+  if [ -f "$INIT_TARGET_PATH" ]; then
+    echo "Deleting old init: $INIT_TARGET_PATH"
+    sudo rm "$INIT_TARGET_PATH"
+  else
+    echo "Old init not found at $INIT_TARGET_PATH, will place new one."
+  fi
+  echo "Copying new init from $SOURCE_INIT_PATH to $INIT_TARGET_PATH and setting permissions."
+  sudo cp "$SOURCE_INIT_PATH" "$INIT_TARGET_PATH"
+  sudo chown 1000:1000 "$INIT_TARGET_PATH"
+  sudo chmod 0755 "$INIT_TARGET_PATH"
+  echo "Init binary replaced and permissions set."
+fi
+echo ""
+
+# --- Step: Fix permissions for build.prop ---
+echo "--- Fixing permissions for build.prop ---"
+sudo chmod -R a+rwX system
+echo ""
+
+# --- Step: Modify build.prop ---
+echo "--- Modifying build.prop ---"
+ODT_BUILD_PROP="odm/etc/buildinfo/build.prop"
+OPPRODUCT_BUILD_PROP="opproduct/build.prop"
+SYSTEM_BUILD_PROP="system/system/build.prop"
+SOURCE_BUILD_PROP=""
+
+if [ -f "$ODT_BUILD_PROP" ]; then
+  SOURCE_BUILD_PROP="$ODT_BUILD_PROP"
+  echo "Found source build.prop at $ODT_BUILD_PROP. Using it for modification."
+elif [ -f "$OPPRODUCT_BUILD_PROP" ]; then
+  SOURCE_BUILD_PROP="$OPPRODUCT_BUILD_PROP"
+  echo "Warning: $ODT_BUILD_PROP not found. Using $OPPRODUCT_BUILD_PROP as source build.prop instead."
+else
+  echo "Warning: Neither $ODT_BUILD_PROP nor $OPPRODUCT_BUILD_PROP found. Skipping build.prop modification."
+  # Do not exit 0 here, let it proceed to add the new property if no source is found.
+fi
+
+if [ ! -f "$SYSTEM_BUILD_PROP" ]; then
+  echo "Error: $SYSTEM_BUILD_PROP not found. Cannot modify build.prop."
+  exit 1
+fi
+
+if [ -n "$SOURCE_BUILD_PROP" ]; then
+  echo "Extracting lines from $SOURCE_BUILD_PROP..."
+  awk '/# autogenerated by oem_log_prop.sh/{flag=1} flag' "$SOURCE_BUILD_PROP" > tmp_lines.txt
+
+  if [ ! -s tmp_lines.txt ]; then
+    echo "Warning: No lines found to copy from $SOURCE_BUILD_PROP starting from '# autogenerated by oem_log_prop.sh'. Skipping build.prop append."
+    rm -f tmp_lines.txt
+  else
+    echo "Appending lines to $SYSTEM_BUILD_PROP..."
+    awk '/# end build properties/ && !x {print; system("cat tmp_lines.txt"); x=1; next} 1' "$SYSTEM_BUILD_PROP" > tmp_build.prop && mv tmp_build.prop "$SYSTEM_BUILD_PROP"
+    rm -f tmp_lines.txt
+  fi
+fi
+
+echo "Adding 'ro.boot.cust=6' and a blank line to $SYSTEM_BUILD_PROP..."
+PROPERTY_LINE="ro.boot.cust=6" 
+BLANK_LINE="" 
+
+echo "$PROPERTY_LINE" | sudo tee -a "$SYSTEM_BUILD_PROP" > /dev/null
+echo "$BLANK_LINE" | sudo tee -a "$SYSTEM_BUILD_PROP" > /dev/null
+
+echo "ro.boot.cust=6 and blank line successfully added."
+echo "Verifying last 3 lines of $SYSTEM_BUILD_PROP to confirm format:"
+sudo tail -n 3 "$SYSTEM_BUILD_PROP"
+
+echo "build.prop modification complete."
+echo ""
+
+# --- Step: Create empty keylayout files ---
+echo "--- Creating empty keylayout files ---"
+KEYLAYOUT_DIR="system/usr/keylayout"
+sudo mkdir -p "$KEYLAYOUT_DIR"
+
+echo "Creating empty uinput-fpc.kl and uinput-goodix.kl..."
+sudo touch "$KEYLAYOUT_DIR/uinput-fpc.kl"
+sudo touch "$KEYLAYOUT_DIR/uinput-goodix.kl"
+echo "Keylayout files created."
+echo ""
+
+# --- Step: Replace OPWallpaperResources.apk ---
+echo "--- Replacing OPWallpaperResources.apk ---"
+TARGET_APK_DIR="system/system_ext/app/OPWallpaperResources"
+TARGET_APK_PATH="$TARGET_APK_DIR/OPWallpaperResources.apk"
+SOURCE_APK_PATH="${FOR_OPWALLPAPER_RESOURCES_DIR}/OPWallpaperResources.apk"
+
+echo "Attempting to replace OPWallpaperResources.apk..."
+
+if [ ! -d "$TARGET_APK_DIR" ]; then
+  echo "Error: Target directory not found: $TARGET_APK_DIR"
+  echo "Please verify the path 'system/system_ext/app/OPWallpaperResources'."
+  exit 1
+fi
+
+if [ -f "$TARGET_APK_PATH" ]; then
+  echo "Deleting original OPWallpaperResources.apk: $TARGET_APK_PATH"
+  sudo rm "$TARGET_APK_PATH"
+  if [ $? -ne 0 ]; then echo "Failed to delete original OPWallpaperResources.apk."; exit 1; fi
+else
+  echo "Original OPWallpaperResources.apk not found at $TARGET_APK_PATH (might be already deleted or path is wrong, proceeding)."
+fi
+
+if [ ! -f "$SOURCE_APK_PATH" ]; then
+  echo "Error: Custom OPWallpaperResources.apk not found at source: $SOURCE_APK_PATH"
+  echo "Please ensure 'my_G2/for_OPWallpaperResources/OPWallpaperResources.apk' is in your repository and accessible."
+  exit 1
+fi
+
+echo "Copying custom OPWallpaperResources.apk from $SOURCE_APK_PATH to $TARGET_APK_DIR"
+sudo cp "$SOURCE_APK_PATH" "$TARGET_APK_DIR/"
+if [ $? -ne 0 ]; then echo "Failed to copy custom OPWallpaperResources.apk."; exit 1; fi
+echo "OPWallpaperResources.apk replaced successfully."
+
+sudo chown 0:0 "$TARGET_APK_PATH"
+sudo chmod 0644 "$TARGET_APK_PATH"
+echo "Permissions for $TARGET_APK_PATH set."
+echo ""
+
+# --- Step: Remove Unwanted Apps ---
+echo "--- Removing Unwanted Apps ---"
+echo "Attempting to remove unwanted apps from various partitions..."
+
+APPS_TO_REMOVE=(
+  "OnePlusCamera"
+  "Drive"
+  "Duo"
+  "Gmail2"
+  "Maps"
+  "Music2"
+  "Photos"
+  "GooglePay"
+  "GoogleTTS"
+  "Videos"
+  "YouTube"
+  "HotwordEnrollmentOKGoogleWCD9340"
+  "HotwordEnrollmentXGoogleWCD9340"
+  "Velvet"
+  "By_3rd_PlayAutoInstallConfigOverSeas"
+  "OPBackup"
+  "OPForum"
+)
+
+declare -a APP_PATHS=(
+  "system/app"
+  "system/priv-app"
+  "system/product/app"
+  "system/product/priv-app"
+  "system/system_ext/app"
+  "system/system_ext/priv-app"
+  "system/system/reserve"
+)
+
+for app_name in "${APPS_TO_REMOVE[@]}"; do
+  APP_FOUND=false
+  for app_path_base in "${APP_PATHS[@]}"; do
+    TARGET_DIR="$app_path_base/$app_name"
+    if [ -d "$TARGET_DIR" ]; then
+      echo "Removing $TARGET_DIR..."
+      sudo rm -rf "$TARGET_DIR"
+      APP_FOUND=true
+      break
+    fi
+  done
+  if ! $APP_FOUND; then
+    echo "Warning: App folder '$app_name' not found in common directories. Skipping."
+  fi
+done
+
+echo "Unwanted apps removal attempt complete."
+echo ""
+
+# --- Step: Patch services.jar (Smali Modification) ---
+echo "--- Patching services.jar (Smali Modification) ---"
+SERVICES_JAR_PATH="system/system/framework/services.jar"
+SMALI_DIR="system/system/framework/services" 
+SMALI_FILE="$SMALI_DIR/smali_classes2/com/android/server/wm/ActivityTaskManagerService\$LocalService.smali"
+
+if [ ! -f "$SERVICES_JAR_PATH" ]; then
+  echo "Error: services.jar not found at $SERVICES_JAR_PATH."
+  exit 1
+fi
+
+echo "Decompiling services.jar..."
+sudo apktool d -f -r "$SERVICES_JAR_PATH" -o "$SMALI_DIR"
+if [ $? -ne 0 ]; then echo "Apktool decompilation failed."; exit 1; fi
+
+if [ ! -f "$SMALI_FILE" ]; then
+  echo "Error: Smali file not found at $SMALI_FILE. Decompilation might have failed or path is incorrect."
+  exit 1
+fi
+
+echo "Applying smali modifications to $SMALI_FILE..."
+
+sudo sed -i '/invoke-static {}, Landroid\/os\/Build;->isBuildConsistent()Z/{
+  n
+  s/    move-result v1/    move-result v1\n\n    const\/4 v1, 0x1\n/
+}' "$SMALI_FILE"
+if [ $? -ne 0 ]; then echo "First sed replacement failed."; exit 1; fi
+echo "First modification (const/4 v1, 0x1) applied."
+
+sudo sed -i 's/if-nez v1, :cond_42/if-nez v1, :cond_43/g' "$SMALI_FILE"
+if [ $? -ne 0 ]; then echo "Second sed replacement failed."; exit 1; fi
+echo "Second modification (cond_42 to cond_43) applied."
+
+sudo sed -i 's/:cond_42/:cond_43/g' "$SMALI_FILE"
+if [ $? -ne 0 ]; then echo "Third sed replacement failed."; exit 1; fi
+echo "Third modification (:cond_42 to :cond_43 label) applied."
+
+sudo sed -i 's/\(:try_end_43\)\n    .catchall {:try_start_29 .. :try_end_43} :catchall_26/\:try_end_44\n    .catchall {:try_start_29 .. :try_end_44} :catchall_26/g' "$SMALI_FILE"
+if [ $? -ne 0 ]; then echo "Fourth sed replacement (try_end_43) failed."; exit 1; fi
+echo "Fourth modification (:try_end_43 to :try_end_44) applied."
+
+sudo sed -i 's/:goto_47/:goto_48/g' "$SMALI_FILE"
+if [ $? -ne 0 ]; then echo "Fifth sed replacement (goto_47) failed."; exit 1; fi
+echo "Fifth modification (:goto_47 to :goto_48) applied."
+
+sudo sed -i 's/\(:try_start_47\)\n    monitor-exit v0\n    :try_end_48/\:try_start_48\n    monitor-exit v0\n    :try_end_49/g' "$SMALI_FILE"
+if [ $? -ne 0 ]; then echo "Sixth sed replacement (try_start/end_4x) failed."; exit 1; fi
+echo "Sixth modification (:try_start/end_4x) applied."
+
+echo "Recompiling services.jar..."
+sudo apktool b "$SMALI_DIR" -o "$SERVICES_JAR_PATH"
+if [ $? -ne 0 ]; then echo "Apktool recompilation failed."; exit 1; fi
+echo "services.jar recompiled successfully."
+
+sudo rm -rf "$SMALI_DIR"
+echo ""
+
+# --- Step: Modify OPSystemUI.apk ---
+echo "--- Modifying OPSystemUI.apk ---"
+APK_PATH="system/system_ext/priv-app/OPSystemUI/OPSystemUI.apk"
+DECOMPILED_DIR="OPSystemUI_decompiled"
+
+if [ ! -f "$APK_PATH" ]; then
+  echo "Error: OPSystemUI.apk not found at $APK_PATH."
+  exit 1
+fi
+
+echo "Decompiling $APK_PATH..."
+sudo apktool d -f "$APK_PATH" -o "$DECOMPILED_DIR"
+if [ $? -ne 0 ]; then echo "Apktool decompilation failed for OPSystemUI.apk."; exit 1; fi
+
+echo "Applying smali modifications..."
+
+OP_VOLUME_DIALOG_IMPL_FILE="$DECOMPILED_DIR/smali_classes2/com/oneplus/volume/OpVolumeDialogImpl.smali"
+if [ -f "$OP_VOLUME_DIALOG_IMPL_FILE" ]; then
+  echo "Modifying OpVolumeDialogImpl.smali..."
+  sudo sed -i '/:cond_11/{n;s/    const\/4 p0, 0x0/    const\/4 p0, 0x1/}' "$OP_VOLUME_DIALOG_IMPL_FILE"
+  sudo sed -i 's/const\/16 v4, 0x13/const\/16 v4, 0x15/g' "$OP_VOLUME_DIALOG_IMPL_FILE"
+else
+  echo "Warning: OpVolumeDialogImpl.smali not found. Skipping modification."
+fi
+
+OP_OUTPUT_CHOOSER_DIALOG_FILE="$DECOMPILED_DIR/smali_classes2/com/oneplus/volume/OpOutputChooserDialog.smali"
+if [ -f "$OP_OUTPUT_CHOOSER_DIALOG_FILE" ]; then
+  echo "Modifying OpOutputChooserDialog.smali..."
+  sudo sed -i '/:cond_11/{n;s/    const\/4 p0, 0x0/    const\/4 p0, 0x1/}' "$OP_OUTPUT_CHOOSER_DIALOG_FILE"
+else
+  echo "Warning: OpOutputChooserDialog.smali not found. Skipping modification."
+fi
+
+VOLUME_DIALOG_IMPL_FILE="$DECOMPILED_DIR/smali/com/android/systemui/volume/VolumeDialogImpl.smali"
+if [ -f "$VOLUME_DIALOG_IMPL_FILE" ]; then
+  echo "Modifying VolumeDialogImpl.smali..."
+  sudo sed -i '/:cond_11/{n;s/    const\/4 p0, 0x0/    const\/4 p0, 0x1/}' "$VOLUME_DIALOG_IMPL_FILE"
+else
+  echo "Warning: VolumeDialogImpl.smali not found. Skipping modification."
+fi
+
+DOZE_SENSORS_PICKUP_CHECK_FILE="$DECOMPILED_DIR/smali/com/android/systemui/doze/DozeSensors\$PickupCheck.smali"
+if [ -f "$DOZE_SENSORS_PICKUP_CHECK_FILE" ]; then
+  echo "Modifying DozeSensors\$PickupCheck.smali..."
+  sudo sed -i 's/0x1fa2652/0x1fa265c/g' "$DOZE_SENSORS_PICKUP_CHECK_FILE"
+else
+  echo "Warning: DozeSensors\$PickupCheck.smali not found. Skipping modification."
+fi
+
+DOZE_MACHINE_STATE_FILE="$DECOMPILED_DIR/smali/com/android/systemui/doze/DozeMachine\$State.smali"
+if [ -f "$DOZE_MACHINE_STATE_FILE" ]; then
+  echo "Modifying DozeMachine\$State.smali..."
+  sudo sed -i '/.method screenState/{n;s/    const\/4 v1, 0x3/    const\/4 v1, 0x2/}' "$DOZE_MACHINE_STATE_FILE"
+else
+  echo "Warning: DozeMachine\$State.smali not found. Skipping modification."
+fi
+
+echo "Applying Smali file replacement for OpCustomizeSettingsG2.smali..."
+
+TARGET_SMALI_DIR="$DECOMPILED_DIR/smali_classes2/com/oneplus/custom/utils"
+ORIGINAL_SMALI_FILE="$TARGET_SMALI_DIR/OpCustomizeSettingsG2.smali"
+NEW_SMALI_FILE="${MY_G2_FOR_SYSTEMUI_DIR}/OpCustomizeSettingsG2.smali" 
+
+if [ ! -d "$TARGET_SMALI_DIR" ]; then
+  echo "Error: Target Smali directory not found: $TARGET_SMALI_DIR"
+  echo "Please verify the 'smali_classesX' folder (e.g., smali_classes2) or the path 'com/oneplus/custom/utils' within OPSystemUI.apk's decompiled structure."
+  exit 1
+fi
+
+if [ -f "$ORIGINAL_SMALI_FILE" ]; then
+  echo "Deleting original OpCustomizeSettingsG2.smali: $ORIGINAL_SMALI_FILE"
+  sudo rm "$ORIGINAL_SMALI_FILE"
+  if [ $? -ne 0 ]; then echo "Failed to delete original OpCustomizeSettingsG2.smali."; exit 1; fi
+else
+  echo "Original OpCustomizeSettingsG2.smali not found at $ORIGINAL_SMALI_FILE (might be already deleted or path is wrong, proceeding)."
+fi
+
+if [ ! -f "$NEW_SMALI_FILE" ]; then
+  echo "Error: New OpCustomizeSettingsG2.smali not found at source: $NEW_SMALI_FILE"
+  echo "Please ensure '$NEW_SMALI_FILE' is in your repository and accessible."
+  exit 1
+fi
+
+echo "Copying new OpCustomizeSettingsG2.smali from $NEW_SMALI_FILE to $TARGET_SMALI_DIR"
+sudo cp "$NEW_SMALI_FILE" "$TARGET_SMALI_DIR/"
+if [ $? -ne 0 ]; then echo "Failed to copy new OpCustomizeSettingsG2.smali."; exit 1; fi
+echo "OpCustomizeSettingsG2.smali replaced successfully."
+
+echo "Smali file replacement complete."
+
+echo "Smali modifications complete."
+
+PLUGIN_DEST_DIR="$DECOMPILED_DIR/smali_classes2/com/oneplus/plugin"
+echo "Replacing plugin files in $PLUGIN_DEST_DIR..."
+
+if [ ! -d "$PLUGIN_FILES_DIR" ]; then
+  echo "Error: Source plugin directory '$PLUGIN_FILES_DIR' not found. Cannot replace plugin files."
+  exit 1
+fi
+
+if [ -d "$PLUGIN_DEST_DIR" ]; then
+  sudo rm -rf "$PLUGIN_DEST_DIR"/*
+else
+  sudo mkdir -p "$PLUGIN_DEST_DIR"
+fi
+
+sudo cp -r "$PLUGIN_FILES_DIR"/* "$PLUGIN_DEST_DIR/"
+if [ $? -ne 0 ]; then echo "Error: Failed to copy new plugin files."; exit 1; fi
+echo "Plugin files replaced."
+
+echo "Recompiling OPSystemUI.apk..."
+sudo apktool b "$DECOMPILED_DIR" -o "OPSystemUI_unsigned.apk"
+if [ $? -ne 0 ]; then echo "Apktool recompilation failed for OPSystemUI.apk."; exit 1; fi
+
+echo "Recompiled OPSystemUI_unsigned.apk created."
+sudo rm -rf "$DECOMPILED_DIR"
+echo ""
+
+# --- Step: Place Modified OPSystemUI.apk ---
+echo "--- Placing Modified OPSystemUI.apk ---"
+MODIFIED_APK="OPSystemUI_unsigned.apk"
+TARGET_APK_DIR="system/system_ext/priv-app/OPSystemUI"
+
+if [ ! -f "$MODIFIED_APK" ]; then
+  echo "Error: OPSystemUI_unsigned.apk not found."
+  exit 1
+fi
+
+echo "Placing modified $MODIFIED_APK into $TARGET_APK_DIR/..."
+sudo rm -f "$TARGET_APK_DIR/OPSystemUI.apk"
+sudo mv "$MODIFIED_APK" "$TARGET_APK_DIR/OPSystemUI.apk"
+sudo chown 0:0 "$TARGET_APK_DIR/OPSystemUI.apk"
+sudo chmod 0644 "$TARGET_APK_DIR/OPSystemUI.apk"
+echo "Modified OPSystemUI.apk placed and permissions set."
+echo ""
+
+# --- Step: Modify Settings.apk ---
+echo "--- Modifying Settings.apk ---"
+SETTINGS_APK_DIR="system/system_ext/priv-app/Settings"
+SETTINGS_APK_PATH="$SETTINGS_APK_DIR/Settings.apk"
+DECOMPILED_SETTINGS_DIR="Settings_decompiled"
+
+if [ ! -f "$SETTINGS_APK_PATH" ]; then
+  echo "Error: Settings.apk not found at $SETTINGS_APK_PATH."
+  exit 1
+fi
+
+echo "Decompiling $SETTINGS_APK_PATH..."
+sudo apktool d -f "$SETTINGS_APK_PATH" -o "$DECOMPILED_SETTINGS_DIR"
+if [ $? -ne 0 ]; then echo "Apktool decompilation failed for Settings.apk."; exit 1; fi
+
+echo "Applying smali modifications to OPUtils.smali..."
+
+OP_UTILS_FILE="$DECOMPILED_SETTINGS_DIR/smali_classes2/com/oneplus/settings/utils/OPUtils.smali"
+if [ -f "$OP_UTILS_FILE" ]; then
+  echo "Modifying $OP_UTILS_FILE..."
+
+  sudo sed -i -z 's/\(OP_FEATURE_SUPPORT_CUSTOM_FINGERPRINT\)/\1/g' "$OP_UTILS_FILE"
+
+  sudo sed -i -z '
+    /\.method.*OP_FEATURE_SUPPORT_CUSTOM_FINGERPRINT/ {
+      :a
+      n
+      /    move-result v0\n\n    return v0/ {
+        s/\(    move-result v0\n\n\)    const\/4 v0, 0x0\n\n    return v0/\1    const\/4 v0, 0x1\n\n    return v0/
+        b end_sed_block
+      }
+      ba
+    }
+    :end_sed_block
+  ' "$OP_UTILS_FILE"
+  # The original sed command was trying to replace 'return v0' after the 'move-result v0' with an additional line and then 'return v0'.
+  # I've corrected it to replace the original 'const/4 v0, 0x0' and 'return v0' block with 'const/4 v0, 0x1' and 'return v0'.
+  # This makes the method always return true, enabling the feature.
+  
+  if [ $? -ne 0 ]; then
+    echo "Error: Smali modification for OP_FEATURE_SUPPORT_CUSTOM_FINGERPRINT failed."
+    exit 1
+  fi
+  echo "Smali modification for OP_FEATURE_SUPPORT_CUSTOM_FINGERPRINT applied."
+
+else
+  echo "Warning: OPUtils.smali not found at $OP_UTILS_FILE. Skipping modification."
+fi
+
+echo "Applying Smali file replacement for OpCustomizeSettingsG2.smali..."
+
+TARGET_SMALI_DIR="$DECOMPILED_SETTINGS_DIR/smali_classes2/com/oneplus/custom/utils"
+ORIGINAL_SMALI_FILE="$TARGET_SMALI_DIR/OpCustomizeSettingsG2.smali"
+NEW_SMALI_FILE="${MY_G2_FOR_SETTINGS_DIR}/OpCustomizeSettingsG2.smali"
+
+if [ ! -d "$TARGET_SMALI_DIR" ]; then
+  echo "Error: Target Smali directory not found for Settings.apk: $TARGET_SMALI_DIR"
+  echo "Please verify the 'smali_classesX' folder (e.g., smali_classes2) or the path 'com/oneplus/custom/utils' within Settings.apk's decompiled structure."
+  exit 1
+fi
+
+if [ -f "$ORIGINAL_SMALI_FILE" ]; then
+  echo "Deleting original OpCustomizeSettingsG2.smali: $ORIGINAL_SMALI_FILE"
+  sudo rm "$ORIGINAL_SMALI_FILE"
+  if [ $? -ne 0 ]; then echo "Failed to delete original OpCustomizeSettingsG2.smali."; exit 1; fi
+else
+  echo "Original OpCustomizeSettingsG2.smali not found at $ORIGINAL_SMALI_FILE (might be already deleted or path is wrong, proceeding)."
+fi
+
+if [ ! -f "$NEW_SMALI_FILE" ]; then
+  echo "Error: New OpCustomizeSettingsG2.smali not found at source: $NEW_SMALI_FILE"
+  echo "Please ensure 'my_G2/OpCustomizeSettingsG2.smali' is in your repository and accessible."
+  exit 1
+fi
+
+echo "Copying new OpCustomizeSettingsG2.smali from $NEW_SMALI_FILE to $TARGET_SMALI_DIR"
+sudo cp "$NEW_SMALI_FILE" "$TARGET_SMALI_DIR/"
+if [ $? -ne 0 ]; then echo "Failed to copy new OpCustomizeSettingsG2.smali."; exit 1; fi
+echo "OpCustomizeSettingsG2.smali replaced successfully."
+
+echo "Smali file replacement complete."
+
+echo "Smali modifications complete."
+
+echo "Recompiling Settings.apk..."
+sudo apktool b "$DECOMPILED_SETTINGS_DIR" -o "$SETTINGS_APK_PATH"
+if [ $? -ne 0 ]; then echo "Apktool recompilation failed for Settings.apk."; exit 1; fi
+echo "Settings.apk recompiled and replaced in its original location."
+
+sudo rm -rf "$DECOMPILED_SETTINGS_DIR"
+
+sudo chown 0:0 "$SETTINGS_APK_PATH"
+sudo chmod 0644 "$SETTINGS_APK_PATH"
+echo "Permissions for $SETTINGS_APK_PATH set."
+echo ""
+
+# --- Step: Ensure system folder is readable ---
+echo "--- Ensuring system folder is readable ---"
+sudo chmod -R a+r system
+sudo chmod -R a+X system
+echo ""
+
+# --- Step: Prepare make_ext4fs from repository ---
+echo "--- Preparing make_ext4fs from repository ---"
+chmod +x make_ext4fs
+# Add the current directory to PATH so make_ext4fs can be found
+export PATH="$(pwd):$PATH"
+echo "make_ext4fs from repository root is ready."
+echo ""
+
+# --- Step: Prepare Reserve Partition and Create Image ---
+echo "--- Preparing Reserve Partition and Create Image ---"
+OLD_RESERVE_SOURCE_DIR="$ROM_ROOT/system/system/reserve"
+NEW_RESERVE_WORKSPACE_DIR="${ROM_ROOT}/reserve_new"
+CUST_MOUNTPOINT_DIR="$ROM_ROOT/system/cust"
+SYMLINK_TARGET_DIR="$ROM_ROOT/system/system/reserve"
+
+echo "1. Copying contents from $OLD_RESERVE_SOURCE_DIR to $NEW_RESERVE_WORKSPACE_DIR..."
+sudo mkdir -p "$NEW_RESERVE_WORKSPACE_DIR"
+if [ -d "$OLD_RESERVE_SOURCE_DIR" ]; then
+  sudo cp -r "$OLD_RESERVE_SOURCE_DIR"/* "$NEW_RESERVE_WORKSPACE_DIR/"
+  echo "   Contents copied to $NEW_RESERVE_WORKSPACE_DIR."
+else
+  echo "   Warning: Original reserve directory ($OLD_RESERVE_SOURCE_DIR) not found. Proceeding assuming $NEW_RESERVE_WORKSPACE_DIR is already populated."
+  echo "   Ensure your apps are copied to $NEW_RESERVE_WORKSPACE_DIR by an earlier step if needed."
+fi
+
+echo "2. Setting permissions for files and folders in $NEW_RESERVE_WORKSPACE_DIR..."
+sudo chown -R 1004:1004 "$NEW_RESERVE_WORKSPACE_DIR"
+find "$NEW_RESERVE_WORKSPACE_DIR" -type d -exec sudo chmod 0775 {} +
+echo "   Directory permissions set to 0775."
+find "$NEW_RESERVE_WORKSPACE_DIR" -name "*.apk" -type f -exec sudo chmod 0664 {} +
+echo "   APK file permissions set to 0664."
+echo "   Permissions set for $NEW_RESERVE_WORKSPACE_DIR."
+
+echo "3. Creating reserve_new.img from $NEW_RESERVE_WORKSPACE_DIR..."
+IMAGE_SIZE_MB=830
+IMAGE_SIZE_BYTES=$(($IMAGE_SIZE_MB * 1024 * 1024))
+
+if command -v make_ext4fs &> /dev/null; then
+  make_ext4fs -s -J -T 0 -L cust -l $IMAGE_SIZE_BYTES -a cust "$NEW_RESERVE_WORKSPACE_DIR.img" "$NEW_RESERVE_WORKSPACE_DIR"
+  if [ $? -ne 0 ]; then 
+    echo "   Error: Failed to create reserve_new.img using make_ext4fs. Please check the tool's output for details."
+    exit 1
+  fi
+  echo "   reserve_new.img created at $NEW_RESERVE_WORKSPACE_DIR.img"
+else
+  echo "   Error: 'make_ext4fs' command not found. This tool is essential for creating the image."
+  echo "   Please add a preceding step in your workflow to install Android build tools (like \`apt-get install android-sdk-platform-tools-core\`). Aborting."
+  exit 1
+fi
+
+echo "4. Preparing $CUST_MOUNTPOINT_DIR (empty mount point) in system.img..."
+sudo mkdir -p "$CUST_MOUNTPOINT_DIR"
+sudo rm -rf "$CUST_MOUNTPOINT_DIR"/*
+echo "   Mount point directory $CUST_MOUNTPOINT_DIR prepared as empty."
+
+echo "5. Creating symlinks in $SYMLINK_TARGET_DIR pointing to $CUST_MOUNTPOINT_DIR..."
+sudo mkdir -p "$SYMLINK_TARGET_DIR"
+sudo rm -rf "$SYMLINK_TARGET_DIR"/*
+
+find "$NEW_RESERVE_WORKSPACE_DIR" -maxdepth 1 -mindepth 1 -type d | while read -r app_folder_path; do
+    dirname=$(basename "$app_folder_path")
+
+    sudo ln -s "$CUST_MOUNTPOINT_DIR/$dirname" "$SYMLINK_TARGET_DIR/$dirname"
+    if [ $? -ne 0 ]; then 
+      echo "   Warning: Failed to create symlink for directory $dirname. This might cause issues if the app relies on it."
+    fi
+done
+echo "   Folder symlinks created in $SYMLINK_TARGET_DIR."
+
+echo "All reserve partition preparation and image creation steps complete."
+echo ""
+
+# --- Step: Rename Reserve Image ---
+echo "--- Renaming Reserve Image ---"
+OLD_IMG_PATH="${ROM_ROOT}/reserve_new.img"
+NEW_IMG_PATH="${ROM_ROOT}/reserve.img"
+
+echo "Renaming $OLD_IMG_PATH to $NEW_IMG_PATH..."
+if [ -f "$OLD_IMG_PATH" ]; then
+  sudo mv "$OLD_IMG_PATH" "$NEW_IMG_PATH"
+  echo "Image successfully renamed."
+else
+  echo "Error: $OLD_IMG_PATH not found for renaming. Ensure the previous step created it correctly."
+  exit 1
+fi
+echo ""
+
+# --- Step: Convert system folder to system.img with specific size ---
+echo "--- Converting system folder to system.img with specific size ---"
+TARGET_SYSTEM_IMG_SIZE_BYTES=3221225472
+SYSTEM_FOLDER_SIZE=$(sudo du -bs system | awk '{print $1}')
+echo "Current system folder size: $SYSTEM_FOLDER_SIZE bytes"
+
+echo "Creating system.img from system/ folder with a max partition size of 3.22GB..."
+
+FILE_CONTEXTS_PATH=""
+if [ -f "system/file_contexts" ]; then
+  FILE_CONTEXTS_PATH="system/file_contexts"
+elif [ -f "system/etc/selinux/plat_file_contexts" ]; then
+  FILE_CONTEXTS_PATH="system/etc/selinux/plat_file_contexts"
+elif [ -f "system/etc/selinux/system_file_contexts" ]; then
+  FILE_CONTEXTS_PATH="system/etc/selinux/system_file_contexts"
+else
+  echo "Warning: file_contexts not found at common paths within 'system/'. New image might have SELinux issues on device boot."
+fi
+
+if [ -n "$FILE_CONTEXTS_PATH" ]; then
+  make_ext4fs -s -S "$FILE_CONTEXTS_PATH" -L system -a /system -l "$TARGET_SYSTEM_IMG_SIZE_BYTES" system_new.img system/
+else
+  make_ext4fs -s -L system -a /system -l "$TARGET_SYSTEM_IMG_SIZE_BYTES" system_new.img system/
+fi
+
+if [ $? -ne 0 ]; then echo "make_ext4fs failed to create system_new.img"; exit 1; fi
+mkdir -p firmware_images
+mv system_new.img firmware_images/system.img
+
+echo "system.img created. Size:"
+ls -lh firmware_images/system.img
+ls -l firmware_images/system.img | awk '{print $5 " bytes"}'
+echo ""
+
+# --- Step: Clean Up needed for space (intermediate files) ---
+echo "--- Cleaning up intermediate files for space ---"
+sudo rm -rf system system_ext product odm opproduct firmware_extracted output payload_dumper *.zip *.rar *.7z system_ext.img product.img odm.img opproduct.img vendor.img custom_init
+echo "Cleanup of intermediate files complete."
+echo ""
+
+# --- Step: Convert system.img to system.new.dat.br, system.transfer.list ---
+echo "--- Converting system.img to system.new.dat.br, system.transfer.list ---"
+echo "Cloning img2sdat tools..."
+git clone https://github.com/IsHacker003/img2sdat.git --depth=1 img2sdat_tools
+if [ ! -d "img2sdat_tools" ]; then echo "Failed to clone img2sdat tools."; exit 1; fi
+
+mkdir -p test
+echo "Converting system.img to system.new.dat, system.patch.dat and system.transfer.list..."
+python3 img2sdat_tools/img2sdat.py firmware_images/system.img -o test -v 4
+if [ $? -ne 0 ]; then echo "img2sdat.py failed."; exit 1; fi
+
+echo "Compressing system.new.dat to system.new.dat.br..."
+brotli -q 11 test/system.new.dat -o test/system.new.dat.br
+if [ $? -ne 0 ]; then echo "Brotli compression failed."; exit 1; fi
+rm test/system.new.dat
+
+echo "Generated system.new.dat.br and system.transfer.list."
+echo ""
+
+# --- Step: Zip Final Files for Release ---
+echo "--- Zipping Final Files for Release ---"
+BUILD_DATE=$(date +%Y%m%d)
+ROM_FILENAME="OnePlus-Port-ROM-$BUILD_DATE.zip"
+RESERVE_IMG_PATH="${ROM_ROOT}/reserve.img"
+ROM_ZIP_PATH="test/$ROM_FILENAME" 
+echo "Zipping final files into $ROM_ZIP_PATH..."
+zip -r "$ROM_ZIP_PATH" test/system.new.dat.br test/system.patch.dat test/system.transfer.list "$RESERVE_IMG_PATH"
+if [ $? -ne 0 ]; then echo "Zipping failed."; exit 1; fi
+echo "ROM_ZIP_PATH=$ROM_ZIP_PATH" >> "$GITHUB_ENV" # For GitHub Actions to pick up
+echo "ROM_FILENAME=$ROM_FILENAME" >> "$GITHUB_ENV" # For GitHub Actions to pick up
+echo "$ROM_ZIP_PATH created."
+echo ""
+
+# --- Step: Prepare Release Tag Name (for manual trigger) ---
+echo "--- Preparing Release Tag Name ---"
+ROM_BASE_NAME=$(basename "${ROM_FILENAME}" .zip)
+RELEASE_TAG="release-${ROM_BASE_NAME}-$(date +%Y%m%d%H%M%S)-${GITHUB_RUN_NUMBER}"
+echo "Generated tag for manual release: "$RELEASE_TAG"..."
+echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT" # For GitHub Actions to pick up
+echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV" # For GitHub Actions to pick up
+echo ""
+
+# The GitHub Release step will be handled by the YAML workflow after this script completes.
+
+# --- Final Cleanup ---
+echo "--- Final Cleanup ---"
+echo "Cleaning up workspace..."
+sudo rm -rf system system_ext product odm opproduct test firmware_extracted firmware_images img2sdat_tools *.zip *.rar *.7z *.img *.dat *.br custom_init
+echo "Cleanup complete."
+echo ""
+
+echo "Android ROM Porting script finished successfully!"
