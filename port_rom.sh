@@ -31,15 +31,17 @@ MY_G2_FOR_SETTINGS_DIR="${ROM_ROOT}/my_G2/for_Settings"
 
 # --- Helper function for mounting and unmounting ---
 # This function now accepts an optional 'read_only' parameter ("ro" for read-only, empty for read-write)
+# IMPORTANT: All informational echoes are now redirected to stderr (>&2)
+# so that only the loop device path is returned to stdout for variable assignment.
 mount_image() {
   local img_path="$1"
   local mount_point="$2"
   local read_only_flag="$3" # "ro" for read-only, "" for read-write
 
-  sudo mkdir -p "$mount_point"
+  sudo mkdir -p "$mount_point" >&2
   LOOP_DEV=$(sudo losetup -f --show "$img_path")
-  if [ -z "$LOOP_DEV" ]; then echo "Error: Failed to assign loop device for $img_path."; return 1; fi
-  echo "Loop device assigned: $LOOP_DEV"
+  if [ -z "$LOOP_DEV" ]; then echo "Error: Failed to assign loop device for $img_path." >&2; return 1; fi
+  echo "Loop device assigned: $LOOP_DEV" >&2
 
   MOUNT_CMD="sudo mount -t ext4" # Explicitly specifying ext4 for reliability
   if [ -n "$read_only_flag" ]; then
@@ -47,29 +49,33 @@ mount_image() {
   fi
   MOUNT_CMD+=" \"$LOOP_DEV\" \"$mount_point\""
 
-  eval "$MOUNT_CMD" # Execute the dynamically built command
+  eval "$MOUNT_CMD"
 
-  if [ $? -ne 0 ]; then echo "Error: Failed to mount $img_path. Unmounting loop device."; sudo losetup -d "$LOOP_DEV"; return 1; fi
-  echo "$img_path mounted to $mount_point."
-  if [ -n "$read_only_flag" ]; then
-    echo "  (Mounted Read-Only as requested)"
+  if [ $? -ne 0 ]; then
+    echo "Error: Failed to mount $img_path. Unmounting loop device." >&2
+    sudo losetup -d "$LOOP_DEV" >&2 # Ensure detach even on mount failure
+    return 1
   fi
-  echo "$LOOP_DEV" # Return loop device by echoing it
+  echo "$img_path mounted to $mount_point." >&2
+  if [ -n "$read_only_flag" ]; then
+    echo "  (Mounted Read-Only as requested)" >&2
+  fi
+  echo "$LOOP_DEV" # Only this line should go to stdout to be captured by the calling script
 }
 
 unmount_image() {
   local mount_point="$1"
   local loop_dev="$2"
   sudo sync
-  echo "Syncing $mount_point..."
+  echo "Syncing $mount_point..." >&2 # Redirect to stderr
   sudo umount "$mount_point"
-  if [ $? -ne 0 ]; then echo "Error: Failed to unmount $mount_point."; return 1; end; fi # Fixed 'end' to 'exit' if it's meant to terminate script
-  echo "Unmounted $mount_point."
+  if [ $? -ne 0 ]; then echo "Error: Failed to unmount $mount_point." >&2; return 1; fi # Redirect to stderr
+  echo "Unmounted $mount_point." >&2 # Redirect to stderr
   sudo losetup -d "$loop_dev"
-  if [ $? -ne 0 ]; then echo "Error: Failed to detach loop device $loop_dev."; return 1; end; fi # Fixed 'end' to 'exit'
-  echo "Detached loop device $loop_dev."
+  if [ $? -ne 0 ]; then echo "Error: Failed to detach loop device $loop_dev." >&2; return 1; fi # Redirect to stderr
+  echo "Detached loop device $loop_dev." >&2 # Redirect to stderr
   sudo rmdir "$mount_point" 2>/dev/null || true # Remove if empty, suppress error if not
-  echo "Cleaned up $mount_point directory."
+  echo "Cleaned up $mount_point directory." >&2 # Redirect to stderr
 }
 
 
