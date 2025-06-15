@@ -69,7 +69,7 @@ sudo apt install -y e2fsprogs
 pip install protobuf
 
 wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O apktool
-wget https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar -O apktool.jar
+wget -q https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar -O apktool.jar
 chmod +x apktool apktool.jar
 sudo mv apktool /usr/local/bin/
 sudo mv apktool.jar /usr/local/bin/
@@ -80,7 +80,7 @@ echo ""
 log_step 2 "Downloading OnePlus Firmware"
 FIRMWARE_FILENAME=$(basename "$FIRMWARE_URL")
 echo "Downloading firmware from: $FIRMWARE_URL"
-wget -q --show-progress "$FIRMWARE_URL" -O "$FIRMWARE_FILENAME"
+wget -q "$FIRMWARE_URL" -O "$FIRMWARE_FILENAME"
 if [ ! -f "$FIRMWARE_FILENAME" ]; then
   echo "Error: Firmware download failed."
   exit 1
