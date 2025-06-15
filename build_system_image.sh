@@ -46,6 +46,7 @@ fi
 
 FIRMWARE_FILENAME=$(basename "$FIRMWARE_URL")
 echo "Downloading firmware from: $FIRMWARE_URL"
+# Use --show-progress without -q for cleaner output
 wget --show-progress "$FIRMWARE_URL" -O "$FIRMWARE_FILENAME"
 if [ ! -f "$FIRMWARE_FILENAME" ]; then
   echo "Error: Firmware download failed."
@@ -80,6 +81,7 @@ if [ -f "$FIRMWARE_FILENAME" ]; then
 fi
 echo "--- Cleanup Complete ---"
 
+# --- Corrected payload.bin processing block ---
 if [ -f firmware_extracted/payload.bin ]; then
   echo "payload.bin found. Extracting images using payload_dumper.py from vm03/payload_dumper.git..."
 
@@ -114,25 +116,27 @@ if [ -f firmware_extracted/payload.bin ]; then
   fi
   
   echo "Images extracted from payload.bin to ./output/"
-  rm -rf "$PAYLOAD_DUMPER_DIR"
-else
-  echo "payload.bin not found. Proceeding with direct image files from extracted firmware (if any)."
-fi
-
-  # --- Cleanup 2: Remove payload.bin and payload_dumper directory after use ---
+  
+  # --- Cleanup 2: Remove payload.bin and payload_dumper directory AFTER successful processing ---
+  # These checks are now correctly nested within the main 'if' block.
   echo "--- Cleanup: Removing payload.bin and payload_dumper directory ---"
-if [ -f "firmware_extracted/payload.bin" ]; then
+  if [ -f "firmware_extracted/payload.bin" ]; then
     rm "firmware_extracted/payload.bin"
     echo "Removed firmware_extracted/payload.bin."
   fi
-  if [ -d "$PAYLOAD_DUMPER_DIR" ]; then
+  if [ -d "$PAYLOAD_DUMPER_DIR" ]; then # Use this specific check for the dumper dir
     rm -rf "$PAYLOAD_DUMPER_DIR"
     echo "Removed payload_dumper directory."
   fi
-    echo "--- Cleanup Complete ---"
+  echo "--- Cleanup Complete ---"
+
+# This `else` correctly belongs to the MAIN `if [ -f firmware_extracted/payload.bin ]; then`
+# It's now the *only* else for that main condition.
 else
-    echo "payload.bin not found. Proceeding with direct image files from extracted firmware (if any)."
+  echo "payload.bin not found. Proceeding with direct image files from extracted firmware (if any)."
 fi
+# --- End of Corrected payload.bin processing block ---
+
 
 REQUIRED_IMAGES=("system.img" "product.img" "system_ext.img" "odm.img" "vendor.img" "boot.img")
 OPTIONAL_IMAGES=("opproduct.img")
@@ -341,14 +345,14 @@ if [ ! -f "$SOURCE_APK_PATH" ]; then
   exit 1
 fi
 
-echo "Copying custom OPWallpaperResources.apk from $SOURCE_APK_PATH to $TARGET_APK_DIR"
+echo "Copying custom OPWallpaperResources.apk from "$SOURCE_APK_PATH" to "$TARGET_APK_DIR
 sudo cp "$SOURCE_APK_PATH" "$TARGET_APK_DIR/"
 if [ $? -ne 0 ]; then echo "Failed to copy custom OPWallpaperResources.apk."; exit 1; fi
 echo "OPWallpaperResources.apk replaced successfully."
 
 sudo chown 0:0 "$TARGET_APK_PATH"
 sudo chmod 0644 "$TARGET_APK_PATH"
-echo "Permissions for $TARGET_APK_PATH set."
+echo "Permissions for "$TARGET_APK_PATH" set."
 
 # 3. Remove Unwanted Apps
 echo "Attempting to remove unwanted apps from various partitions..."
@@ -388,7 +392,7 @@ for app_name in "${APPS_TO_REMOVE[@]}"; do
   for app_path_base in "${APP_PATHS[@]}"; do
     TARGET_DIR="$app_path_base/$app_name"
     if [ -d "$TARGET_DIR" ]; then
-      echo "Removing $TARGET_DIR..."
+      echo "Removing "$TARGET_DIR"..."
       sudo rm -rf "$TARGET_DIR"
       APP_FOUND=true
       break
@@ -406,7 +410,7 @@ SMALI_DIR="services_decompiled"
 SMALI_FILE="$SMALI_DIR/smali_classes2/com/android/server/wm/ActivityTaskManagerService\$LocalService.smali"
 
 if [ ! -f "$SERVICES_JAR_PATH" ]; then
-  echo "Error: services.jar not found at $SERVICES_JAR_PATH."
+  echo "Error: services.jar not found at "$SERVICES_JAR_PATH"."
   exit 1
 fi
 
@@ -415,11 +419,11 @@ sudo apktool d -f -r "$SERVICES_JAR_PATH" -o "$SMALI_DIR"
 if [ $? -ne 0 ]; then echo "Apktool decompilation failed."; exit 1; fi
 
 if [ ! -f "$SMALI_FILE" ]; then
-  echo "Error: Smali file not found at $SMALI_FILE. Decompilation might have failed or path is incorrect."
+  echo "Error: Smali file not found at "$SMALI_FILE". Decompilation might have failed or path is incorrect."
   exit 1
 fi
 
-echo "Applying smali modifications to $SMALI_FILE..."
+echo "Applying smali modifications to "$SMALI_FILE"..."
 
 sudo sed -i '/invoke-static {}, Landroid\/os\/Build;->isBuildConsistent()Z/{
   n
@@ -461,11 +465,11 @@ DECOMPILED_DIR="OPSystemUI_decompiled"
 PLUGIN_SOURCE_DIR="${GITHUB_WORKSPACE}/plugin_files"
 
 if [ ! -f "$APK_PATH" ]; then
-  echo "Error: OPSystemUI.apk not found at $APK_PATH."
+  echo "Error: OPSystemUI.apk not found at "$APK_PATH"."
   exit 1
 fi
 
-echo "Decompiling $APK_PATH..."
+echo "Decompiling "$APK_PATH"..."
 sudo apktool d -f "$APK_PATH" -o "$DECOMPILED_DIR"
 if [ $? -ne 0 ]; then echo "Apktool decompilation failed for OPSystemUI.apk."; exit 1; fi
 
@@ -491,7 +495,7 @@ fi
 VOLUME_DIALOG_IMPL_FILE="$DECOMPILED_DIR/smali/com/android/systemui/volume/VolumeDialogImpl.smali"
 if [ -f "$VOLUME_DIALOG_IMPL_FILE" ]; then
   echo "Modifying VolumeDialogImpl.smali..."
-  sudo sed -i '/:cond_11/{n;s/    const\/4 p0, 0x0/    const\/4 p0, 0x1/}' "$VOLUME_DIALOG_IMPL_FILE"
+  sudo sed -i '/:cond_11/{n;s/    const\/4 p0, 0x0/    const\/4 p0, 0x1/}' "$VOLUME_DIALOG_IMPL_IMPL_FILE"
 else
   echo "Warning: VolumeDialogImpl.smali not found. Skipping modification."
 fi
@@ -519,26 +523,26 @@ ORIGINAL_SMALI_FILE="$TARGET_SMALI_DIR/OpCustomizeSettingsG2.smali"
 NEW_SMALI_FILE="${GITHUB_WORKSPACE}/my_G2/for_SystemUI/OpCustomizeSettingsG2.smali"
 
 if [ ! -d "$TARGET_SMALI_DIR" ]; then
-  echo "Error: Target Smali directory not found: $TARGET_SMALI_DIR"
+  echo "Error: Target Smali directory not found: "$TARGET_SMALI_DIR""
   echo "Please verify the 'smali_classesX' folder or the path 'com/oneplus/custom/utils' within OPSystemUI.apk's decompiled structure."
   exit 1
 fi
 
 if [ -f "$ORIGINAL_SMALI_FILE" ]; then
-  echo "Deleting original OpCustomizeSettingsG2.smali: $ORIGINAL_SMALI_FILE"
+  echo "Deleting original OpCustomizeSettingsG2.smali: "$ORIGINAL_SMALI_FILE""
   sudo rm "$ORIGINAL_SMALI_FILE"
   if [ $? -ne 0 ]; then echo "Failed to delete original OpCustomizeSettingsG2.smali."; exit 1; fi
 else
-  echo "Original OpCustomizeSettingsG2.smali not found at $ORIGINAL_SMALI_FILE (might be already deleted or path is wrong, proceeding)."
+  echo "Original OpCustomizeSettingsG2.smali not found at "$ORIGINAL_SMALI_FILE" (might be already deleted or path is wrong, proceeding)."
 fi
 
 if [ ! -f "$NEW_SMALI_FILE" ]; then
-  echo "Error: New OpCustomizeSettingsG2.smali not found at source: $NEW_SMALI_FILE"
+  echo "Error: New OpCustomizeSettingsG2.smali not found at source: "$NEW_SMALI_FILE""
   echo "Please ensure '$NEW_SMALI_FILE' is in your repository and accessible."
   exit 1
 fi
 
-echo "Copying new OpCustomizeSettingsG2.smali from $NEW_SMALI_FILE to $TARGET_SMALI_DIR"
+echo "Copying new OpCustomizeSettingsG2.smali from "$NEW_SMALI_FILE" to "$TARGET_SMALI_DIR
 sudo cp "$NEW_SMALI_FILE" "$TARGET_SMALI_DIR/"
 if [ $? -ne 0 ]; then echo "Failed to copy new OpCustomizeSettingsG2.smali."; exit 1; fi
 echo "OpCustomizeSettingsG2.smali replaced successfully."
@@ -547,7 +551,7 @@ echo "Smali file replacement complete."
 echo "Smali modifications complete."
 
 PLUGIN_DEST_DIR="$DECOMPILED_DIR/smali_classes2/com/oneplus/plugin"
-echo "Replacing plugin files in $PLUGIN_DEST_DIR..."
+echo "Replacing plugin files in "$PLUGIN_DEST_DIR"..."
 
 if [ ! -d "$PLUGIN_SOURCE_DIR" ]; then
   echo "Error: Source plugin directory '$PLUGIN_SOURCE_DIR' not found. Cannot replace plugin files."
@@ -573,18 +577,18 @@ sudo rm -rf "$DECOMPILED_DIR"
 
 sudo chown 0:0 "${FINAL_MOUNT_POINT}/system_ext/priv-app/OPSystemUI/OPSystemUI.apk"
 sudo chmod 0644 "${FINAL_MOUNT_POINT}/system_ext/priv-app/OPSystemUI/OPSystemUI.apk"
-echo "Permissions for OPSystemUI.apk set."
+echo "Permissions for "${FINAL_MOUNT_POINT}/system_ext/priv-app/OPSystemUI/OPSystemUI.apk" set."
 
 # 6. Modify Settings.apk
 SETTINGS_APK_PATH="${FINAL_MOUNT_POINT}/system_ext/priv-app/Settings/Settings.apk"
 DECOMPILED_SETTINGS_DIR="Settings_decompiled"
 
 if [ ! -f "$SETTINGS_APK_PATH" ]; then
-  echo "Error: Settings.apk not found at $SETTINGS_APK_PATH."
+  echo "Error: Settings.apk not found at "$SETTINGS_APK_PATH"."
   exit 1
 fi
 
-echo "Decompiling $SETTINGS_APK_PATH..."
+echo "Decompiling "$SETTINGS_APK_PATH"..."
 sudo apktool d -f "$SETTINGS_APK_PATH" -o "$DECOMPILED_SETTINGS_DIR"
 if [ $? -ne 0 ]; then echo "Apktool decompilation failed for Settings.apk."; exit 1; fi
 
@@ -592,7 +596,7 @@ echo "Applying smali modifications to OPUtils.smali..."
 
 OP_UTILS_FILE="$DECOMPILED_SETTINGS_DIR/smali_classes2/com/oneplus/settings/utils/OPUtils.smali"
 if [ -f "$OP_UTILS_FILE" ]; then
-  echo "Modifying $OP_UTILS_FILE..."
+  echo "Modifying "$OP_UTILS_FILE"..."
 
   sudo sed -i -z 's/\(OP_FEATURE_SUPPORT_CUSTOM_FINGERPRINT\)/\1/g' "$OP_UTILS_FILE"
 
@@ -616,7 +620,7 @@ if [ -f "$OP_UTILS_FILE" ]; then
   echo "Smali modification for OP_FEATURE_SUPPORT_CUSTOM_FINGERPRINT applied."
 
 else
-  echo "Warning: OPUtils.smali not found at $OP_UTILS_FILE. Skipping modification."
+  echo "Warning: OPUtils.smali not found at "$OP_UTILS_FILE". Skipping modification."
 fi
 
 echo "Applying Smali file replacement for OpCustomizeSettingsG2.smali..."
@@ -626,26 +630,26 @@ ORIGINAL_SMALI_FILE="$TARGET_SMALI_DIR/OpCustomizeSettingsG2.smali"
 NEW_SMALI_FILE="${GITHUB_WORKSPACE}/my_G2/for_Settings/OpCustomizeSettingsG2.smali"
 
 if [ ! -d "$TARGET_SMALI_DIR" ]; then
-  echo "Error: Target Smali directory not found for Settings.apk: $TARGET_SMALI_DIR"
+  echo "Error: Target Smali directory not found for Settings.apk: "$TARGET_SMALI_DIR""
   echo "Please verify the 'smali_classesX' folder or the path 'com/oneplus/custom/utils' within Settings.apk's decompiled structure."
   exit 1
 fi
 
 if [ -f "$ORIGINAL_SMALI_FILE" ]; then
-  echo "Deleting original OpCustomizeSettingsG2.smali: $ORIGINAL_SMALI_FILE"
+  echo "Deleting original OpCustomizeSettingsG2.smali: "$ORIGINAL_SMALI_FILE""
   sudo rm "$ORIGINAL_SMALI_FILE"
   if [ $? -ne 0 ]; then echo "Failed to delete original OpCustomizeSettingsG2.smali."; exit 1; fi
 else
-  echo "Original OpCustomizeSettingsG2.smali not found at $ORIGINAL_SMALI_FILE (might be already deleted or path is wrong, proceeding)."
+  echo "Original OpCustomizeSettingsG2.smali not found at "$ORIGINAL_SMALI_FILE" (might be already deleted or path is wrong, proceeding)."
 fi
 
 if [ ! -f "$NEW_SMALI_FILE" ]; then
-  echo "Error: New OpCustomizeSettingsG2.smali not found at source: $NEW_SMALI_FILE"
+  echo "Error: New OpCustomizeSettingsG2.smali not found at source: "$NEW_SMALI_FILE""
   echo "Please ensure '$NEW_SMALI_FILE' is in your repository and accessible."
   exit 1
 fi
 
-echo "Copying new OpCustomizeSettingsG2.smali from $NEW_SMALI_FILE to $TARGET_SMALI_DIR"
+echo "Copying new OpCustomizeSettingsG2.smali from "$NEW_SMALI_FILE" to "$TARGET_SMALI_DIR
 sudo cp "$NEW_SMALI_FILE" "$TARGET_SMALI_DIR/"
 if [ $? -ne 0 ]; then echo "Failed to copy new OpCustomizeSettingsG2.smali."; exit 1; fi
 echo "OpCustomizeSettingsG2.smali replaced successfully."
@@ -662,7 +666,7 @@ sudo rm -rf "$DECOMPILED_SETTINGS_DIR"
 
 sudo chown 0:0 "$SETTINGS_APK_PATH"
 sudo chmod 0644 "$SETTINGS_APK_PATH"
-echo "Permissions for $SETTINGS_APK_PATH set."
+echo "Permissions for "$SETTINGS_APK_PATH" set."
 
 # 7. Prepare Reserve Partition and Create Image
 OLD_RESERVE_SOURCE_DIR="${FINAL_MOUNT_POINT}/reserve"
@@ -670,24 +674,24 @@ NEW_RESERVE_WORKSPACE_DIR="${GITHUB_WORKSPACE}/reserve_new_content"
 CUST_MOUNTPOINT_DIR="${FINAL_MOUNT_POINT}/cust"
 SYMLINK_TARGET_DIR="${FINAL_MOUNT_POINT}/reserve"
 
-echo "1. Copying contents from $OLD_RESERVE_SOURCE_DIR to $NEW_RESERVE_WORKSPACE_DIR (for separate image creation)..."
+echo "1. Copying contents from "$OLD_RESERVE_SOURCE_DIR" to "$NEW_RESERVE_WORKSPACE_DIR" (for separate image creation)..."
 sudo mkdir -p "$NEW_RESERVE_WORKSPACE_DIR"
 if [ -d "$OLD_RESERVE_SOURCE_DIR" ]; then
   sudo rsync -a "$OLD_RESERVE_SOURCE_DIR"/* "$NEW_RESERVE_WORKSPACE_DIR/"
-  echo "   Contents copied to $NEW_RESERVE_WORKSPACE_DIR."
+  echo "   Contents copied to "$NEW_RESERVE_WORKSPACE_DIR"."
 else
-  echo "   Warning: Original reserve directory ($OLD_RESERVE_SOURCE_DIR) not found in the mounted system image. Proceeding assuming $NEW_RESERVE_WORKSPACE_DIR will be populated by other means if needed."
+  echo "   Warning: Original reserve directory ("$OLD_RESERVE_SOURCE_DIR") not found in the mounted system image. Proceeding assuming "$NEW_RESERVE_WORKSPACE_DIR" will be populated by other means if needed."
 fi
 
-echo "2. Setting permissions for files and folders in $NEW_RESERVE_WORKSPACE_DIR..."
+echo "2. Setting permissions for files and folders in "$NEW_RESERVE_WORKSPACE_DIR"..."
 sudo chown -R 1004:1004 "$NEW_RESERVE_WORKSPACE_DIR"
 find "$NEW_RESERVE_WORKSPACE_DIR" -type d -exec sudo chmod 0775 {} +
 echo "   Directory permissions set to 0775."
 find "$NEW_RESERVE_WORKSPACE_DIR" -name "*.apk" -type f -exec sudo chmod 0664 {} +
 echo "   APK file permissions set to 0664."
-echo "   Permissions set for $NEW_RESERVE_WORKSPACE_DIR."
+echo "   Permissions set for "$NEW_RESERVE_WORKSPACE_DIR"."
 
-echo "3. Creating reserve_new.img from $NEW_RESERVE_WORKSPACE_DIR..."
+echo "3. Creating reserve_new.img from "$NEW_RESERVE_WORKSPACE_DIR"..."
 IMAGE_SIZE_MB=830
 IMAGE_SIZE_BYTES=$(($IMAGE_SIZE_MB * 1024 * 1024))
 
@@ -697,7 +701,7 @@ if command -v make_ext4fs &> /dev/null; then
     echo "   Error: Failed to create reserve_new.img using make_ext4fs. Please check the tool's output for details."
     exit 1
   fi
-  echo "   reserve_new.img created at ${GITHUB_WORKSPACE}/reserve_new.img"
+  echo "   reserve_new.img created at "${GITHUB_WORKSPACE}/reserve_new.img""
 else
   echo "   Error: 'make_ext4fs' command not found. This tool is essential for creating the image."
   echo "   Please ensure 'e2fsprogs' is installed. Aborting."
@@ -705,12 +709,12 @@ else
 fi
 sudo rm -rf "$NEW_RESERVE_WORKSPACE_DIR"
 
-echo "4. Preparing $CUST_MOUNTPOINT_DIR (empty mount point) in the mounted system.img..."
+echo "4. Preparing "$CUST_MOUNTPOINT_DIR" (empty mount point) in the mounted system.img..."
 sudo mkdir -p "$CUST_MOUNTPOINT_DIR"
 sudo rm -rf "$CUST_MOUNTPOINT_DIR"/*
-echo "   Mount point directory $CUST_MOUNTPOINT_DIR prepared as empty."
+echo "   Mount point directory "$CUST_MOUNTPOINT_DIR" prepared as empty."
 
-echo "5. Creating symlinks in $SYMLINK_TARGET_DIR (inside the mounted system.img) pointing to $CUST_MOUNTPOINT_DIR..."
+echo "5. Creating symlinks in "$SYMLINK_TARGET_DIR" (inside the mounted system.img) pointing to "$CUST_MOUNTPOINT_DIR"..."
 sudo mkdir -p "$SYMLINK_TARGET_DIR"
 sudo rm -rf "$SYMLINK_TARGET_DIR"/*
 
@@ -723,7 +727,7 @@ find "$TEMP_RESERVE_MOUNT" -maxdepth 1 -mindepth 1 -type d | while read -r app_f
     dirname=$(basename "$app_folder_path")
     sudo ln -s "../../cust/$dirname" "$SYMLINK_TARGET_DIR/$dirname"
     if [ $? -ne 0 ]; then
-      echo "   Warning: Failed to create symlink for directory $dirname. This might cause issues if the app relies on it."
+      echo "   Warning: Failed to create symlink for directory "$dirname". This might cause issues if the app relies on it."
     fi
 done
 
@@ -731,20 +735,20 @@ sudo umount "$TEMP_RESERVE_MOUNT"
 sudo losetup -d "$TEMP_RESERVE_LOOP"
 rmdir "$TEMP_RESERVE_MOUNT"
 
-echo "   Folder symlinks created in $SYMLINK_TARGET_DIR."
+echo "   Folder symlinks created in "$SYMLINK_TARGET_DIR"."
 echo "All reserve partition preparation and image creation steps complete."
 
 echo "--- Custom modifications complete. ---"
 
-echo "--- Finalizing ${FINAL_IMAGE_NAME} ---"
+echo "--- Finalizing "$FINAL_IMAGE_NAME" ---"
 # Unmount and Clean Up the Final system_new.img
-echo "Syncing data for ${FINAL_MOUNT_POINT} before unmount..."
+echo "Syncing data for "$FINAL_MOUNT_POINT" before unmount..."
 sync
-sudo umount "${FINAL_MOUNT_POINT}"
-echo "Unmounted ${FINAL_MOUNT_POINT}."
-sudo losetup -d "${FINAL_LOOP_DEV}"
-echo "Detached loop device ${FINAL_LOOP_DEV}."
-rmdir "${FINAL_MOUNT_POINT}"
-echo "Successfully populated and unmounted ${FINAL_IMAGE_NAME}."
+sudo umount "$FINAL_MOUNT_POINT"
+echo "Unmounted "$FINAL_MOUNT_POINT"."
+sudo losetup -d "$FINAL_LOOP_DEV"
+echo "Detached loop device "$FINAL_LOOP_DEV"."
+rmdir "$FINAL_MOUNT_POINT"
+echo "Successfully populated and unmounted "$FINAL_IMAGE_NAME"."
 
 echo "--- Script execution complete ---"
