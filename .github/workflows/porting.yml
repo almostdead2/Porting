@@ -1,48 +1,51 @@
-name: OnePlus Firmware Modification
+name: Android ROM Porting
 
 on:
   workflow_dispatch:
     inputs:
       firmware_url:
-        description: 'URL of the OnePlus firmware (e.g., direct download link to .zip)'
+        description: 'Direct URL to the OnePlus Firmware ZIP file'
         required: true
-        default: ''
+        default: 'https://example.com/your_oneplus_firmware.zip'
 
 jobs:
-  build:
+  port_rom:
     runs-on: ubuntu-latest
+    timeout-minutes: 300
+    permissions:
+      contents: write
 
     steps:
-    - name: Checkout main repository
-      uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.x'
+      - name: Run ROM Porting Script
+        run: |
+          chmod +x ./port_rom.sh
+          ./port_rom.sh "${{ github.event.inputs.firmware_url }}"
+        env:
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
 
-    - name: Install system dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y wget unzip e2fsprogs rsync
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          files: ${{ env.ROM_ZIP_PATH }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Manual Port ROM Release - ${{ env.ROM_FILENAME }}
+          body: |
+            OnePlus OEM ROM Port - ${{ env.ROM_FILENAME }}
 
-    - name: Clone payload_dumper
-      run: |
-        git clone https://github.com/vm03/payload_dumper.git
-        python3 -m pip install -r payload_dumper/requirements.txt || echo "No requirements.txt or dependencies already met."
+            This release contains the ported ROM for your device.
+            This build was automatically generated.
 
-    - name: Make script executable
-      run: chmod +x firmware_mod.sh
+            Changes included:
+            - Custom build.prop modifications
+            - `services.jar` patched for build consistency check bypass
+            - Unwanted apps removed
+            - Custom `init` binary (if provided)
+            - System partition merged and re-imaged
+            - Empty keylayout files created
 
-    - name: Run Firmware Modification Script
-      run: |
-        ./firmware_mod.sh
-      env:
-        FIRMWARE_URL: ${{ github.event.inputs.firmware_url }}
-
-    - name: Upload Modified Firmware (system_new.img)
-      uses: actions/upload-artifact@v4
-      with:
-        name: modified-firmware
-        path: output/system_new.img
-        retention-days: 7
+            Flash at your own risk.
