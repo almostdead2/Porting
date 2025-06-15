@@ -252,12 +252,12 @@ echo ""
 
 # --- Create empty system_new.img ---
 log_step 7 "Creating empty system_new.img (5.22 GB)" # Renamed from 10
-TARGET_SYSTEM_IMG_SIZE_BYTES=5221225472 # 5.22 GB as requested
+TARGET_SYSTEM_IMG_SIZE_BYTES=5072 # 5.22 GB as requested
 SYSTEM_NEW_IMG_NAME="system_new.img"
 
 echo "Creating an empty EXT4 image file: "$SYSTEM_NEW_IMG_NAME" with size ${TARGET_SYSTEM_IMG_SIZE_BYTES} bytes."
 # Create an empty file first, then format it.
-dd if=/dev/zero of="$SYSTEM_NEW_IMG_NAME" bs=1 count="$TARGET_SYSTEM_IMG_SIZE_BYTES"
+dd if=/dev/zero of="$SYSTEM_NEW_IMG_NAME" bs=1M count="$TARGET_SYSTEM_IMG_SIZE_BYTES"
 if [ $? -ne 0 ]; then echo "Error: Failed to create empty file for system_new.img."; exit 1; fi
 
 sudo mkfs.ext4 -L system "$SYSTEM_NEW_IMG_NAME"
