@@ -340,6 +340,28 @@ if [ $? -ne 0 ]; then echo "Failed to mount the new system.img for modifications
 echo "New system.img mounted to "$SYSTEM_MOUNT_POINT" for modifications."
 echo ""
 
+# --- NEW: Apktool Framework Setup ---
+log_step 12 "Apktool Framework Setup" # New step, renumbering subsequent
+echo "Emptying Apktool framework directory to ensure a clean slate..."
+sudo apktool empty-framework-dir
+if [ $? -eq 0 ]; then
+  echo "Apktool framework directory cleared successfully."
+else
+  echo "Warning: apktool empty-framework-dir command completed with a non-zero exit code. This might indicate nothing was there to clean, or a minor issue. Proceeding."
+fi
+
+echo "Installing Apktool frameworks..."
+FRAMEWORK_APK="${SYSTEM_MOUNT_POINT}/system/framework/framework-res.apk" # Correct path
+if [ -f "$FRAMEWORK_APK" ]; then
+  sudo apktool if "$FRAMEWORK_APK"
+  if [ $? -ne 0 ]; then echo "Apktool framework installation failed! Check framework-res.apk path and file integrity."; exit 1; fi
+  echo "Apktool framework installed successfully."
+else
+  echo "Error: framework-res.apk not found at "$FRAMEWORK_APK". Cannot install framework. Ensure your ROM files are correctly extracted."
+  exit 1
+fi
+echo ""
+
 # --- Perform all modifications on the newly mounted system.img ---
 # (This includes content that was previously in system_ext and product)
 
