@@ -953,9 +953,8 @@ echo "Cloning img2sdat tools..."
 git clone https://github.com/IsHacker003/img2sdat.git --depth=1 img2sdat_tools
 if [ ! -d "img2sdat_tools" ]; then echo "Failed to clone img2sdat tools."; exit 1; fi
 
-mkdir -p test
 echo "Converting firmware_images/system.img to system.new.dat, system.patch.dat and system.transfer.list..."
-python3 img2sdat_tools/img2sdat.py "firmware_images/system.img" -o test -v 4 # Use the new, modified system.img here
+python3 img2sdat_tools/img2sdat.py "firmware_images/system.img" -o test -v 4
 if [ $? -ne 0 ]; then echo "img2sdat.py failed."; exit 1; fi
 
 echo "Compressing system.new.dat to system.new.dat.br..."
