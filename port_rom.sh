@@ -208,7 +208,8 @@ echo "Deleted downloaded firmware archive and firmware_extracted directory."
 echo ""
 
 log_step 6.1 "Checking system.img filesystem integrity"
-sudo fsck.ext4 -y "$SYSTEM_IMG_PATH"
+sudo fsck.ext4 -y firmware_images/system.img
+ls -l firmware_images/
 if [ $? -ne 0 ]; then
   echo "Error: fsck.ext4 found issues with system.img. Attempted to repair."
   # You might want to exit here if fsck.ext4 reports unfixable errors
