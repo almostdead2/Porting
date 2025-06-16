@@ -106,7 +106,7 @@ unmount_image() {
 # --- Step: Install Dependencies ---
 log_step 1 "Installing Dependencies"
 sudo apt update
-sudo apt install -y unace unrar zip unzip p7zip-full liblz4-tool brotli default-jre libc++-dev
+sudo apt install -y unace unrar zip unzip p7zip-full liblz4-tool brotli default-jre
 sudo apt install -y libarchive-tools
 sudo apt install -y android-sdk-libsparse-utils
 sudo apt install -y e2fsprogs
