@@ -260,7 +260,7 @@ echo "Creating an empty EXT4 image file: "$SYSTEM_NEW_IMG_NAME" with size ${TARG
 dd if=/dev/zero of="$SYSTEM_NEW_IMG_NAME" bs=1M count="$TARGET_SYSTEM_IMG_SIZE_BYTES"
 if [ $? -ne 0 ]; then echo "Error: Failed to create empty file for system_new.img."; exit 1; fi
 
-sudo mkfs.ext4 -s -L system "$SYSTEM_NEW_IMG_NAME"
+sudo mkfs.ext4 -L system "$SYSTEM_NEW_IMG_NAME"
 if [ $? -ne 0 ]; then echo "Error: Failed to format "$SYSTEM_NEW_IMG_NAME" as ext4."; exit 1; fi
 
 sudo tune2fs -c0 -i0 "$SYSTEM_NEW_IMG_NAME"
@@ -946,6 +946,87 @@ unmount_image "$SYSTEM_MOUNT_POINT" "$SYSTEM_LOOP_DEV"
 echo "system.img unmounted and synced."
 echo ""
 
+# --- NEW Step: Resize and copy system.img content to system_test.img ---
+log_step 16.1 "Resizing and copying system.img to a new image"
+
+SYSTEM_TEST_IMG_NAME="system_test.img"
+SYSTEM_TEST_IMG_SIZE_BYTES=3221225472 # 3GB as requested
+SYSTEM_TEST_MOUNT_POINT="system_test"
+SYSTEM_MOUNT_POINT="system_temp_mount" # Temporary mount point for the original system.img
+
+echo "Creating empty "$SYSTEM_TEST_IMG_NAME" with size "$SYSTEM_TEST_IMG_SIZE_BYTES" bytes."
+dd if=/dev/zero of="$SYSTEM_TEST_IMG_NAME" bs=1 count=0 seek="$SYSTEM_TEST_IMG_SIZE_BYTES"
+if [ $? -ne 0 ]; then echo "Error: Failed to create empty file for system_test.img."; exit 1; fi
+
+sudo mkfs.ext4 -L system "$SYSTEM_TEST_IMG_NAME"
+if [ $? -ne 0 ]; then echo "Error: Failed to format "$SYSTEM_TEST_IMG_NAME" as ext4."; exit 1; fi
+
+sudo tune2fs -c0 -i0 "$SYSTEM_TEST_IMG_NAME"
+if [ $? -ne 0 ]; then echo "Error: Failed to disable automatic filesystem checks for system_test.img."; exit 1; fi
+
+echo ""$SYSTEM_TEST_IMG_NAME" created."
+
+# Mount system_test.img (read-write)
+SYSTEM_TEST_LOOP_DEV=$(mount_image "$SYSTEM_TEST_IMG_NAME" "$SYSTEM_TEST_MOUNT_POINT" "")
+if [ $? -ne 0 ]; then echo "Failed to mount "$SYSTEM_TEST_IMG_NAME". Exiting."; exit 1; fi
+echo ""$SYSTEM_TEST_IMG_NAME" mounted to "$SYSTEM_TEST_MOUNT_POINT"."
+
+# Mount original system.img (read-only)
+SYSTEM_IMG_PATH="firmware_images/system.img"
+SYSTEM_LOOP_DEV=$(mount_image "$SYSTEM_IMG_PATH" "$SYSTEM_MOUNT_POINT" "ro")
+if [ $? -ne 0 ]; then echo "Failed to mount "$SYSTEM_IMG_PATH". Exiting."; exit 1; fi
+echo ""$SYSTEM_IMG_PATH" mounted to "$SYSTEM_MOUNT_POINT"."
+
+echo "Copying contents from "$SYSTEM_MOUNT_POINT" to "$SYSTEM_TEST_MOUNT_POINT"..."
+sudo cp -a "$SYSTEM_MOUNT_POINT/." "$SYSTEM_TEST_MOUNT_POINT/"
+if [ $? -ne 0 ]; then echo "Error: Failed to copy contents from "$SYSTEM_IMG_PATH" to "$SYSTEM_TEST_IMG_NAME"."; exit 1; fi
+echo "Contents copied successfully."
+
+echo "Syncing and unmounting "$SYSTEM_MOUNT_POINT"..."
+unmount_image "$SYSTEM_MOUNT_POINT" "$SYSTEM_LOOP_DEV"
+echo ""$SYSTEM_IMG_PATH" unmounted."
+
+echo "Syncing and unmounting "$SYSTEM_TEST_MOUNT_POINT"..."
+unmount_image "$SYSTEM_TEST_MOUNT_POINT" "$SYSTEM_TEST_LOOP_DEV"
+echo ""$SYSTEM_TEST_IMG_NAME" unmounted."
+
+echo "Deleting original system.img..."
+sudo rm -f "$SYSTEM_IMG_PATH"
+echo "Original system.img deleted."
+
+echo "Renaming "$SYSTEM_TEST_IMG_NAME" to system.img..."
+sudo mv "$SYSTEM_TEST_IMG_NAME" "$SYSTEM_IMG_PATH"
+echo "system_test.img renamed to system.img."
+echo ""
+
+# --- NEW Step: Make system.img sparse ---
+log_step 16.2 "Converting system.img to sparse image"
+
+IMG2SIMG_PATH="${ROM_ROOT}/img2simg" # Path to img2simg in the current GitHub repo
+
+if [ ! -f "$IMG2SIMG_PATH" ]; then
+  echo "Error: img2simg not found at "$IMG2SIMG_PATH". Ensure it is in your repository root."
+  exit 1
+fi
+
+chmod +x "$IMG2SIMG_PATH"
+echo "Running img2simg to convert system.img to sparse format..."
+"$IMG2SIMG_PATH" "$SYSTEM_IMG_PATH" "firmware_images/system.sparse.img"
+if [ $? -ne 0 ]; then
+  echo "Error: img2simg conversion failed."
+  exit 1
+fi
+echo "system.img converted to system.sparse.img."
+
+echo "Deleting non-sparse system.img..."
+sudo rm -f "$SYSTEM_IMG_PATH"
+echo "Non-sparse system.img deleted."
+
+echo "Renaming system.sparse.img to system.img..."
+sudo mv "firmware_images/system.sparse.img" "$SYSTEM_IMG_PATH"
+echo "system.sparse.img renamed to system.img."
+echo ""
+
 
 # --- Step: Convert system.img to system.new.dat.br, system.transfer.list ---
 log_step 17 "Converting system.img to system.new.dat.br, system.transfer.list" # Renamed from 17
@@ -994,6 +1075,7 @@ log_step 20 "Final Cleanup" # Renamed from 20
 echo "Cleaning up workspace..."
 # Adjusted cleanup to match new flow and remove new temp dirs
 sudo rm -rf firmware_images/original_system_mount_point firmware_images/original_system_ext_mount_point firmware_images/original_product_mount_point system_new_final_mount_point system_mount_point services_decompiled OPSystemUI_decompiled Settings_decompiled img2sdat_tools *.dat *.br "$NEW_RESERVE_WORKSPACE_DIR" *.img # Keep the final system.img for conversion
+sudo rm -rf "$SYSTEM_TEST_MOUNT_POINT" "$SYSTEM_MOUNT_POINT" # Clean up the mount points from step 16.1
 echo "Cleanup complete."
 echo ""
 
