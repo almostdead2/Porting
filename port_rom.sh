@@ -1011,6 +1011,11 @@ fi
 
 chmod +x "$IMG2SIMG_PATH"
 echo "Running img2simg to convert system.img to sparse format..."
+
+# Set LD_LIBRARY_PATH to include your repo's 'lib' directory
+export LD_LIBRARY_PATH="${ROM_ROOT}/lib:$LD_LIBRARY_PATH"
+echo "LD_LIBRARY_PATH set to: $LD_LIBRARY_PATH" # Optional: for debugging
+
 "$IMG2SIMG_PATH" "$SYSTEM_IMG_PATH" "firmware_images/system.sparse.img"
 if [ $? -ne 0 ]; then
   echo "Error: img2simg conversion failed."
