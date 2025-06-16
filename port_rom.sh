@@ -950,12 +950,12 @@ echo ""
 log_step 16.1 "Resizing and copying system.img to a new image"
 
 SYSTEM_TEST_IMG_NAME="system_test.img"
-SYSTEM_TEST_IMG_SIZE_BYTES=3221225472 # 3GB as requested
+SYSTEM_TEST_IMG_SIZE_BYTES=3072 # 3GB as requested
 SYSTEM_TEST_MOUNT_POINT="system_test"
 SYSTEM_MOUNT_POINT="system_temp_mount" # Temporary mount point for the original system.img
 
 echo "Creating empty "$SYSTEM_TEST_IMG_NAME" with size "$SYSTEM_TEST_IMG_SIZE_BYTES" bytes."
-dd if=/dev/zero of="$SYSTEM_TEST_IMG_NAME" bs=1 count=0 seek="$SYSTEM_TEST_IMG_SIZE_BYTES"
+dd if=/dev/zero of="$SYSTEM_TEST_IMG_NAME" bs=1M count="$SYSTEM_TEST_IMG_SIZE_BYTES"
 if [ $? -ne 0 ]; then echo "Error: Failed to create empty file for system_test.img."; exit 1; fi
 
 sudo mkfs.ext4 -L system "$SYSTEM_TEST_IMG_NAME"
