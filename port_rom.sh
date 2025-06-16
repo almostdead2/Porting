@@ -260,7 +260,7 @@ echo "Creating an empty EXT4 image file: "$SYSTEM_NEW_IMG_NAME" with size ${TARG
 dd if=/dev/zero of="$SYSTEM_NEW_IMG_NAME" bs=1M count="$TARGET_SYSTEM_IMG_SIZE_BYTES"
 if [ $? -ne 0 ]; then echo "Error: Failed to create empty file for system_new.img."; exit 1; fi
 
-sudo mkfs.ext4 -L system "$SYSTEM_NEW_IMG_NAME"
+sudo mkfs.ext4 -s -L system "$SYSTEM_NEW_IMG_NAME"
 if [ $? -ne 0 ]; then echo "Error: Failed to format "$SYSTEM_NEW_IMG_NAME" as ext4."; exit 1; fi
 
 sudo tune2fs -c0 -i0 "$SYSTEM_NEW_IMG_NAME"
@@ -955,7 +955,7 @@ if [ ! -d "img2sdat_tools" ]; then echo "Failed to clone img2sdat tools."; exit 
 
 mkdir -p test
 echo "Converting firmware_images/system.img to system.new.dat, system.patch.dat and system.transfer.list..."
-python3 img2sdat_tools/img2sdat.py firmware_images/system.img -o test -v 4
+python3 img2sdat_tools/img2sdat.py "firmware_images/system.img" -o test -v 4 # Use the new, modified system.img here
 if [ $? -ne 0 ]; then echo "img2sdat.py failed."; exit 1; fi
 
 echo "Compressing system.new.dat to system.new.dat.br..."
