@@ -124,7 +124,7 @@ echo ""
 # --- Step: Download OnePlus Firmware ---
 log_step 2 "Downloading OnePlus Firmware"
 FIRMWARE_FILENAME=$(basename "$FIRMWARE_URL")
-echo "Downloading firmware from: $FIRMWARE_URL"
+echo "Downloading firmware from: "$FIRMWARE_URL""
 wget -q "$FIRMWARE_URL" -O "$FIRMWARE_FILENAME"
 if [ ! -f "$FIRMWARE_FILENAME" ]; then
   echo "Error: Firmware download failed."
@@ -392,7 +392,7 @@ echo ""
 # --- Step: Delete unwanted apps ---
 log_step 13 "Deleting unwanted apps" # Renumbered from 12
 
-if [ ${#UNWANTED_APPS[@]} -eq 0 ]; then
+if [[ ${#UNWANTED_APPS[@]} -eq 0 ]]; then
     echo "No apps specified in UNWANTED_APPS list. Skipping app removal."
 else
     echo "Starting removal of unwanted applications..."
@@ -443,14 +443,6 @@ else
     fi
 fi
 echo "Unwanted apps removal complete."
-echo ""
-
-# --- Perform all modifications on the newly mounted system.img ---
-# (This includes content that was previously in system_ext and product)
-
-# --- SKIPPING: Delete unwanted apps (as per user request) ---
-log_step 12 "SKIPPING: Deleting unwanted apps (as requested)"
-echo "App removal will be done later, as per your instruction."
 echo ""
 
 # Fix permissions for build.prop (applied within mounted system.img)
@@ -703,7 +695,6 @@ else
 
   if [ -f "$OP_UTILS_FILE" ]; then
     echo "Patching OPUtils.smali for fingerprint support..."
-    # FIX for -z option and improved multi-line replacement
     sudo sed -i '/.method.*OP_FEATURE_SUPPORT_CUSTOM_FINGERPRINT/,/.end method/{
       /    const\/4 v0, 0x0/{
         s/    const\/4 v0, 0x0/    const\/4 v0, 0x1/
