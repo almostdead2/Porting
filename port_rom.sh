@@ -1088,7 +1088,6 @@ echo "Cleaning up workspace..."
 # MODIFICATION: Changed cleanup for 'test' directory as it's now inside the ROM_ROOT after zipping from 'test' directory
 sudo rm -rf firmware_images/original_system_mount_point firmware_images/original_system_ext_mount_point firmware_images/original_product_mount_point system_new_final_mount_point system_mount_point services_decompiled OPSystemUI_decompiled Settings_decompiled img2sdat_tools *.dat *.br "$NEW_RESERVE_WORKSPACE_DIR" firmware_images/*.img # Keep the final system.img for conversion
 sudo rm -rf "$SYSTEM_TEST_MOUNT_POINT" "$SYSTEM_MOUNT_POINT" # Clean up the mount points from step 16.1
-sudo rm -rf test # Remove the test directory and its contents after zipping
 echo "Cleanup complete."
 echo ""
 
